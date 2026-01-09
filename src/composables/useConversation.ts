@@ -11,6 +11,7 @@ import type {
   ModelInfo,
   ModelsResponse,
 } from '@/types'
+import { CONVERSATION_SCHEMA_VERSION } from '@/types'
 import { useSSE, type SSEConnectionStatus } from './useSSE'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001'
@@ -60,6 +61,10 @@ function savePreferredModel(value: string): void {
   localStorage.setItem('forge-ui-preferred-model', value)
 }
 
+function generateId(): string {
+  return `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
+}
+
 export interface UseConversationReturn {
   // State
   conversation: Ref<Conversation | null>
@@ -86,7 +91,6 @@ export interface UseConversationReturn {
 
   // Actions
   createConversation: (request?: CreateConversationRequest) => Promise<void>
-  loadConversation: (id: string) => Promise<void>
   deleteConversation: () => Promise<void>
   sendMessage: (content: string, model?: string) => Promise<void>
   cancelGeneration: () => Promise<void>
@@ -113,59 +117,38 @@ export function useConversation(): UseConversationReturn {
     () => healthStatus.value?.status === 'ok' || healthStatus.value?.status === 'healthy'
   )
 
+  // Create conversation locally (no server call)
   async function createConversation(request?: CreateConversationRequest): Promise<void> {
-    const payload = {
-      model: request?.model || preferredModel.value,
-      system_prompt: request?.system_prompt,
+    const now = new Date().toISOString()
+    const model = request?.model || preferredModel.value
+
+    conversation.value = {
+      version: CONVERSATION_SCHEMA_VERSION,
+      metadata: {
+        id: generateId(),
+        created_at: now,
+        updated_at: now,
+        model,
+        system_prompt: request?.system_prompt || '',
+        system_prompt_history: [],
+        total_tokens: 0,
+        message_count: 0,
+      },
+      messages: [],
     }
 
-    const response = await fetch(`${API_URL}/conversations`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
-
-    if (!response.ok) {
-      throw new Error(`Failed to create conversation: ${response.statusText}`)
-    }
-
-    // API returns { id, model, system_prompt }, need to fetch full conversation
-    const created = await response.json()
-    await loadConversation(created.id)
-
-    // Update health status after successful conversation creation
+    // Update health status
     await checkHealth()
   }
 
-  async function loadConversation(id: string): Promise<void> {
-    const response = await fetch(`${API_URL}/conversations/${id}`)
-
-    if (!response.ok) {
-      throw new Error(`Failed to load conversation: ${response.statusText}`)
-    }
-
-    conversation.value = await response.json()
-  }
-
+  // Delete conversation (just clear local state)
   async function deleteConversation(): Promise<void> {
-    if (!conversation.value?.metadata?.id) return
-
-    const response = await fetch(
-      `${API_URL}/conversations/${conversation.value.metadata.id}`,
-      { method: 'DELETE' }
-    )
-
-    if (!response.ok) {
-      throw new Error(`Failed to delete conversation: ${response.statusText}`)
-    }
-
     conversation.value = null
   }
 
+  // Send message with full history to stateless backend
   async function sendMessage(content: string, model?: string): Promise<void> {
-    if (!conversation.value?.metadata?.id || isStreaming.value) return
-
-    const convId = conversation.value.metadata.id
+    if (!conversation.value || isStreaming.value) return
 
     // Add user message to local state
     const userMessage: Message = {
@@ -176,6 +159,7 @@ export function useConversation(): UseConversationReturn {
       status: 'complete',
     }
     conversation.value.messages.push(userMessage)
+    conversation.value.metadata.message_count = conversation.value.messages.length
 
     // Reset streaming state
     isStreaming.value = true
@@ -183,15 +167,25 @@ export function useConversation(): UseConversationReturn {
     currentThinking.value = ''
     toolCalls.value = new Map()
 
-    // Build URL with query params
-    const params = new URLSearchParams({ message: content })
-    if (model) {
-      params.append('model', model)
-    }
-    const streamUrl = `${API_URL}/conversations/${convId}/stream?${params.toString()}`
+    // Build message history for the API (only user and assistant messages)
+    const messageHistory = conversation.value.messages
+      .filter((m) => m.role === 'user' || m.role === 'assistant')
+      .slice(0, -1) // Exclude the message we just added
+      .map((m) => ({
+        role: m.role,
+        content: m.content,
+      }))
 
-    // Connect to SSE
-    sse.connect(streamUrl, {
+    // Build request body
+    const requestBody = {
+      user_message: content,
+      messages: messageHistory,
+      system_prompt: conversation.value.metadata.system_prompt || null,
+      model: model || conversation.value.metadata.model || null,
+    }
+
+    // Connect to SSE via POST (fire and forget - handlers will be called)
+    sse.connectPost(`${API_URL}/chat/stream`, requestBody, {
       onToken: (event) => {
         currentResponse.value = event.cumulative
       },
@@ -231,6 +225,12 @@ export function useConversation(): UseConversationReturn {
         }
         conversation.value?.messages.push(assistantMessage)
 
+        // Update token count
+        if (conversation.value && event.usage) {
+          conversation.value.metadata.total_tokens +=
+            (event.usage.prompt_tokens || 0) + (event.usage.completion_tokens || 0)
+        }
+
         // Add tool call/result messages
         toolCalls.value.forEach((tc) => {
           if (conversation.value) {
@@ -259,6 +259,12 @@ export function useConversation(): UseConversationReturn {
             })
           }
         })
+
+        // Update message count
+        if (conversation.value) {
+          conversation.value.metadata.message_count = conversation.value.messages.length
+          conversation.value.metadata.updated_at = new Date().toISOString()
+        }
 
         // Reset streaming state
         isStreaming.value = false
@@ -291,17 +297,9 @@ export function useConversation(): UseConversationReturn {
     })
   }
 
+  // Cancel generation (just disconnect SSE - backend is stateless)
   async function cancelGeneration(): Promise<void> {
-    if (!conversation.value?.metadata?.id || !isStreaming.value) return
-
-    const response = await fetch(
-      `${API_URL}/conversations/${conversation.value.metadata.id}/cancel`,
-      { method: 'POST' }
-    )
-
-    if (!response.ok) {
-      console.error('Failed to cancel generation:', response.statusText)
-    }
+    if (!isStreaming.value) return
 
     sse.disconnect()
     isStreaming.value = false
@@ -310,57 +308,37 @@ export function useConversation(): UseConversationReturn {
     toolCalls.value = new Map()
   }
 
+  // Delete messages from index (local operation)
   async function deleteMessagesFrom(index: number): Promise<void> {
-    if (!conversation.value?.metadata?.id) return
+    if (!conversation.value) return
 
-    const response = await fetch(
-      `${API_URL}/conversations/${conversation.value.metadata.id}/messages/${index}`,
-      { method: 'DELETE' }
-    )
-
-    if (!response.ok) {
-      throw new Error(`Failed to delete messages: ${response.statusText}`)
-    }
-
-    conversation.value = await response.json()
+    conversation.value.messages = conversation.value.messages.slice(0, index)
+    conversation.value.metadata.message_count = conversation.value.messages.length
+    conversation.value.metadata.updated_at = new Date().toISOString()
   }
 
+  // Update system prompt (local operation)
   async function updateSystemPrompt(content: string): Promise<void> {
-    if (!conversation.value?.metadata?.id) return
+    if (!conversation.value) return
 
-    const response = await fetch(
-      `${API_URL}/conversations/${conversation.value.metadata.id}/system-prompt`,
-      {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content }),
-      }
-    )
-
-    if (!response.ok) {
-      throw new Error(`Failed to update system prompt: ${response.statusText}`)
+    // Save current prompt to history
+    if (conversation.value.metadata.system_prompt) {
+      conversation.value.metadata.system_prompt_history.push({
+        content: conversation.value.metadata.system_prompt,
+        set_at: conversation.value.metadata.updated_at,
+      })
     }
 
-    conversation.value = await response.json()
+    conversation.value.metadata.system_prompt = content
+    conversation.value.metadata.updated_at = new Date().toISOString()
   }
 
+  // Update model (local operation)
   async function updateModel(model: string): Promise<void> {
-    if (!conversation.value?.metadata?.id) return
+    if (!conversation.value) return
 
-    const response = await fetch(
-      `${API_URL}/conversations/${conversation.value.metadata.id}/model`,
-      {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model }),
-      }
-    )
-
-    if (!response.ok) {
-      throw new Error(`Failed to update model: ${response.statusText}`)
-    }
-
-    conversation.value = await response.json()
+    conversation.value.metadata.model = model
+    conversation.value.metadata.updated_at = new Date().toISOString()
   }
 
   async function refreshTools(): Promise<void> {
@@ -452,26 +430,56 @@ export function useConversation(): UseConversationReturn {
     savePreferredModel(model)
   }
 
+  // Import conversation from file (local operation)
   async function importConversation(file: File): Promise<void> {
     const text = await file.text()
-    const data = JSON.parse(text) as Conversation
+    const data = JSON.parse(text)
 
-    // Create the conversation on the server
-    const response = await fetch(`${API_URL}/conversations`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: data.metadata.model,
-        system_prompt: data.metadata.system_prompt,
-      }),
-    })
+    // Handle version migration
+    const importedVersion = data.version || '0.0.0' // Pre-versioned files
+    const migratedData = migrateConversation(data, importedVersion)
 
-    if (!response.ok) {
-      throw new Error(`Failed to import conversation: ${response.statusText}`)
+    // Generate new ID for imported conversation
+    const now = new Date().toISOString()
+    conversation.value = {
+      version: CONVERSATION_SCHEMA_VERSION,
+      metadata: {
+        ...migratedData.metadata,
+        id: generateId(), // New ID for imported conversation
+        updated_at: now,
+      },
+      messages: migratedData.messages || [],
+    }
+  }
+
+  // Migrate conversation data from older versions
+  function migrateConversation(data: Record<string, unknown>, fromVersion: string): Conversation {
+    let migrated = { ...data } as Conversation
+
+    // Version 0.0.0 (pre-versioned) -> 1.0.0
+    // Pre-versioned files don't have the version field, add defaults
+    if (fromVersion === '0.0.0') {
+      migrated = {
+        version: CONVERSATION_SCHEMA_VERSION,
+        metadata: (data.metadata || {}) as Conversation['metadata'],
+        messages: (data.messages || []) as Conversation['messages'],
+      }
+      // Ensure required metadata fields have defaults
+      if (!migrated.metadata.system_prompt_history) {
+        migrated.metadata.system_prompt_history = []
+      }
+      if (migrated.metadata.total_tokens === undefined) {
+        migrated.metadata.total_tokens = 0
+      }
+      if (migrated.metadata.message_count === undefined) {
+        migrated.metadata.message_count = migrated.messages.length
+      }
     }
 
-    conversation.value = await response.json()
-    // Note: Messages are not imported in this simple version
+    // Future migrations would go here:
+    // if (fromVersion === '1.0.0') { migrate to 1.1.0 }
+
+    return migrated
   }
 
   function exportConversation(): void {
@@ -515,7 +523,6 @@ export function useConversation(): UseConversationReturn {
 
     // Actions
     createConversation,
-    loadConversation,
     deleteConversation,
     sendMessage,
     cancelGeneration,

@@ -44,3 +44,4 @@ bun.lockb
 # Claude Code work directory
 .claude-work/
 .claude/
+tsconfig.tsbuildinfo

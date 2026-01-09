@@ -27,6 +27,7 @@ export interface UseSSEReturn {
   status: Ref<SSEConnectionStatus>
   debugEvents: Ref<DebugEvent[]>
   connect: (url: string, handlers: SSEHandlers) => void
+  connectPost: (url: string, body: unknown, handlers: SSEHandlers) => void
   disconnect: () => void
   clearDebugEvents: () => void
 }
@@ -35,6 +36,7 @@ export function useSSE(): UseSSEReturn {
   const status = ref<SSEConnectionStatus>('disconnected')
   const debugEvents = ref<DebugEvent[]>([])
   let eventSource: EventSource | null = null
+  let abortController: AbortController | null = null
   let eventIdCounter = 0
 
   function parseEventData(type: SSEEventType, rawData: string): SSEEventData | null {
@@ -55,6 +57,75 @@ export function useSSE(): UseSSEReturn {
       raw,
     }
     debugEvents.value = [...debugEvents.value.slice(-99), event] // Keep last 100
+  }
+
+  function handleSSEEvent(
+    eventType: string,
+    eventData: string,
+    handlers: SSEHandlers
+  ): boolean {
+    // Returns true if stream should end
+    const type = eventType as SSEEventType
+
+    switch (type) {
+      case 'token': {
+        const data = parseEventData('token', eventData) as TokenEvent | null
+        if (data) {
+          addDebugEvent('token', data, eventData)
+          handlers.onToken?.(data)
+        }
+        break
+      }
+      case 'thinking': {
+        const data = parseEventData('thinking', eventData) as ThinkingEvent | null
+        if (data) {
+          addDebugEvent('thinking', data, eventData)
+          handlers.onThinking?.(data)
+        }
+        break
+      }
+      case 'tool_call': {
+        const data = parseEventData('tool_call', eventData) as ToolCallEvent | null
+        if (data) {
+          addDebugEvent('tool_call', data, eventData)
+          handlers.onToolCall?.(data)
+        }
+        break
+      }
+      case 'tool_result': {
+        const data = parseEventData('tool_result', eventData) as ToolResultEvent | null
+        if (data) {
+          addDebugEvent('tool_result', data, eventData)
+          handlers.onToolResult?.(data)
+        }
+        break
+      }
+      case 'complete': {
+        const data = parseEventData('complete', eventData) as CompleteEvent | null
+        if (data) {
+          addDebugEvent('complete', data, eventData)
+          handlers.onComplete?.(data)
+        }
+        return true // End stream
+      }
+      case 'error': {
+        const data = parseEventData('error', eventData) as ErrorEvent | null
+        if (data) {
+          addDebugEvent('error', data, eventData)
+          handlers.onError?.(data)
+        }
+        return true // End stream
+      }
+      case 'ping': {
+        const data = parseEventData('ping', eventData)
+        if (data) {
+          addDebugEvent('ping', data, eventData)
+          handlers.onPing?.()
+        }
+        break
+      }
+    }
+    return false
   }
 
   function connect(url: string, handlers: SSEHandlers): void {
@@ -149,10 +220,101 @@ export function useSSE(): UseSSEReturn {
     }
   }
 
+  // Connect via POST request with streaming response
+  async function connectPost(url: string, body: unknown, handlers: SSEHandlers): Promise<void> {
+    // Disconnect existing connection
+    disconnect()
+
+    status.value = 'connecting'
+    abortController = new AbortController()
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'text/event-stream',
+        },
+        body: JSON.stringify(body),
+        signal: abortController.signal,
+      })
+
+      if (!response.ok) {
+        throw new Error(`HTTP error: ${response.status} ${response.statusText}`)
+      }
+
+      if (!response.body) {
+        throw new Error('Response body is null')
+      }
+
+      status.value = 'connected'
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      // Track event state across chunk reads
+      let currentEventType = ''
+      let currentEventData = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+
+        if (done) {
+          break
+        }
+
+        buffer += decoder.decode(value, { stream: true })
+
+        // Process complete SSE events from buffer
+        // Handle both \n and \r\n line endings
+        const lines = buffer.split(/\r?\n/)
+        buffer = lines.pop() || '' // Keep incomplete line in buffer
+
+        for (const line of lines) {
+          if (line.startsWith('event:')) {
+            currentEventType = line.slice(6).trim()
+          } else if (line.startsWith('data:')) {
+            currentEventData = line.slice(5).trim()
+          } else if (line === '' && currentEventType && currentEventData) {
+            // Empty line signals end of event
+            const shouldEnd = handleSSEEvent(currentEventType, currentEventData, handlers)
+            currentEventType = ''
+            currentEventData = ''
+            if (shouldEnd) {
+              reader.cancel()
+              disconnect()
+              return
+            }
+          }
+        }
+      }
+
+      // Stream ended naturally
+      disconnect()
+    } catch (error) {
+      if ((error as Error).name === 'AbortError') {
+        // Intentional disconnect
+        status.value = 'disconnected'
+      } else {
+        status.value = 'error'
+        console.error('SSE POST connection error:', error)
+        handlers.onError?.({
+          code: 'CONNECTION_ERROR',
+          message: (error as Error).message,
+          retryable: true,
+        })
+      }
+    }
+  }
+
   function disconnect(): void {
     if (eventSource) {
       eventSource.close()
       eventSource = null
+    }
+    if (abortController) {
+      abortController.abort()
+      abortController = null
     }
     status.value = 'disconnected'
   }
@@ -165,6 +327,7 @@ export function useSSE(): UseSSEReturn {
     status,
     debugEvents,
     connect,
+    connectPost,
     disconnect,
     clearDebugEvents,
   }

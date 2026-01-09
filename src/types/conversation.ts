@@ -1,9 +1,17 @@
 /**
  * Conversation Types
- * These match the Python Pydantic models in forge-orchestrator
+ *
+ * The conversation file format is defined by JSON Schema:
+ * schemas/conversation.v1.schema.json
+ *
+ * These TypeScript types are manually maintained to match the schema.
+ * The schema serves as documentation and can be used for runtime validation.
  */
 
 import type { TokenUsage } from './messages'
+
+/** Current schema version for conversation export format */
+export const CONVERSATION_SCHEMA_VERSION = '1.0.0'
 
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool_call' | 'tool_result'
 export type MessageStatus = 'complete' | 'cancelled' | 'error' | 'streaming'
@@ -49,6 +57,8 @@ export interface ConversationMetadata {
 }
 
 export interface Conversation {
+  /** Schema version for migration support */
+  version: string
   metadata: ConversationMetadata
   messages: Message[]
 }

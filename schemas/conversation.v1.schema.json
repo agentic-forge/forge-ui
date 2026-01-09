@@ -1,0 +1,193 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentic-forge.github.io/schemas/conversation.v1.json",
+  "title": "Forge Conversation",
+  "description": "Schema for Agentic Forge conversation export/import format",
+  "type": "object",
+  "required": ["version", "metadata", "messages"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "const": "1.0.0",
+      "description": "Schema version for migration support"
+    },
+    "metadata": {
+      "$ref": "#/$defs/ConversationMetadata"
+    },
+    "messages": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Message"
+      },
+      "description": "Chronological list of messages in the conversation"
+    }
+  },
+  "$defs": {
+    "ConversationMetadata": {
+      "type": "object",
+      "required": ["id", "created_at", "updated_at", "model"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the conversation"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when conversation was created"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when conversation was last updated"
+        },
+        "model": {
+          "type": "string",
+          "description": "LLM model identifier (e.g., 'anthropic/claude-sonnet-4')"
+        },
+        "system_prompt": {
+          "type": "string",
+          "default": "",
+          "description": "System prompt for the conversation"
+        },
+        "system_prompt_history": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SystemPromptHistory"
+          },
+          "default": [],
+          "description": "History of previous system prompts"
+        },
+        "total_tokens": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Total tokens used in the conversation"
+        },
+        "message_count": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Number of messages in the conversation"
+        }
+      }
+    },
+    "SystemPromptHistory": {
+      "type": "object",
+      "required": ["content", "set_at"],
+      "properties": {
+        "content": {
+          "type": "string",
+          "description": "The previous system prompt content"
+        },
+        "set_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when this prompt was set"
+        }
+      }
+    },
+    "Message": {
+      "type": "object",
+      "required": ["id", "role", "content", "timestamp", "status"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the message"
+        },
+        "role": {
+          "$ref": "#/$defs/MessageRole"
+        },
+        "content": {
+          "type": "string",
+          "description": "Message content (text for user/assistant, empty for tool messages)"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when message was created"
+        },
+        "status": {
+          "$ref": "#/$defs/MessageStatus"
+        },
+        "model": {
+          "type": "string",
+          "description": "Model used for assistant messages"
+        },
+        "usage": {
+          "$ref": "#/$defs/TokenUsage",
+          "description": "Token usage for assistant messages"
+        },
+        "tool_name": {
+          "type": "string",
+          "description": "Tool name for tool_call messages"
+        },
+        "tool_arguments": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Arguments passed to the tool"
+        },
+        "tool_call_id": {
+          "type": "string",
+          "description": "ID linking tool_call and tool_result messages"
+        },
+        "tool_result": {
+          "description": "Result returned from tool execution"
+        },
+        "is_error": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether the tool call resulted in an error"
+        },
+        "latency_ms": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Tool execution latency in milliseconds"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "role": { "const": "tool_call" } }
+          },
+          "then": {
+            "required": ["tool_name", "tool_call_id"]
+          }
+        },
+        {
+          "if": {
+            "properties": { "role": { "const": "tool_result" } }
+          },
+          "then": {
+            "required": ["tool_call_id"]
+          }
+        }
+      ]
+    },
+    "MessageRole": {
+      "type": "string",
+      "enum": ["user", "assistant", "system", "tool_call", "tool_result"],
+      "description": "Role of the message sender"
+    },
+    "MessageStatus": {
+      "type": "string",
+      "enum": ["complete", "cancelled", "error", "streaming"],
+      "description": "Current status of the message"
+    },
+    "TokenUsage": {
+      "type": "object",
+      "properties": {
+        "prompt_tokens": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of tokens in the prompt"
+        },
+        "completion_tokens": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of tokens in the completion"
+        }
+      }
+    }
+  }
+}
