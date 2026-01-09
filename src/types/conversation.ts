@@ -92,6 +92,39 @@ export interface ToolsResponse {
 }
 
 /**
+ * Model Types (from OpenRouter via orchestrator)
+ */
+
+export interface ModelPricing {
+  prompt: number
+  completion: number
+}
+
+export interface ModelInfo {
+  id: string
+  name: string
+  provider: string
+  context_length: number
+  pricing: ModelPricing
+  supports_tools: boolean
+  supports_vision: boolean
+  modality?: string
+  created?: number
+}
+
+export interface ModelsResponse {
+  providers: string[]
+  models: ModelInfo[]
+  cached_at: string | null
+}
+
+export interface ModelsRefreshResponse {
+  status: string
+  model_count: number
+  provider_count: number
+}
+
+/**
  * UI State Types
  */
 

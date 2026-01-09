@@ -8,6 +8,8 @@ import type {
   Tool,
   DebugEvent,
   TokenUsage,
+  ModelInfo,
+  ModelsResponse,
 } from '@/types'
 import { useSSE, type SSEConnectionStatus } from './useSSE'
 
@@ -26,6 +28,10 @@ const availableTools = ref<Tool[]>([])
 const healthStatus = ref<HealthResponse | null>(null)
 const messageDraft = ref(loadMessageDraft())
 const preferredModel = ref(loadPreferredModel())
+const availableModels = ref<ModelInfo[]>([])
+const availableProviders = ref<string[]>([])
+const modelsCachedAt = ref<string | null>(null)
+const isLoadingModels = ref(false)
 
 // SSE instance
 const sse = useSSE()
@@ -69,6 +75,10 @@ export interface UseConversationReturn {
   preferredModel: Ref<string>
   debugEvents: Ref<DebugEvent[]>
   sseStatus: Ref<SSEConnectionStatus>
+  availableModels: Ref<ModelInfo[]>
+  availableProviders: Ref<string[]>
+  modelsCachedAt: Ref<string | null>
+  isLoadingModels: Ref<boolean>
 
   // Computed
   messages: ComputedRef<Message[]>
@@ -92,6 +102,8 @@ export interface UseConversationReturn {
   setPreferredModel: (model: string) => void
   importConversation: (file: File) => Promise<void>
   exportConversation: () => void
+  fetchModels: () => Promise<void>
+  refreshModels: () => Promise<void>
 }
 
 export function useConversation(): UseConversationReturn {
@@ -362,6 +374,40 @@ export function useConversation(): UseConversationReturn {
     availableTools.value = data.tools
   }
 
+  async function fetchModels(): Promise<void> {
+    isLoadingModels.value = true
+    try {
+      const response = await fetch(`${API_URL}/models`)
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch models: ${response.statusText}`)
+      }
+
+      const data: ModelsResponse = await response.json()
+      availableModels.value = data.models
+      availableProviders.value = data.providers
+      modelsCachedAt.value = data.cached_at
+    } finally {
+      isLoadingModels.value = false
+    }
+  }
+
+  async function refreshModels(): Promise<void> {
+    isLoadingModels.value = true
+    try {
+      const response = await fetch(`${API_URL}/models/refresh`, { method: 'POST' })
+
+      if (!response.ok) {
+        throw new Error(`Failed to refresh models: ${response.statusText}`)
+      }
+
+      // After refresh, fetch the updated models
+      await fetchModels()
+    } finally {
+      isLoadingModels.value = false
+    }
+  }
+
   async function checkHealth(): Promise<void> {
     try {
       const response = await fetch(`${API_URL}/health`)
@@ -458,6 +504,10 @@ export function useConversation(): UseConversationReturn {
     preferredModel,
     debugEvents: sse.debugEvents,
     sseStatus: sse.status,
+    availableModels,
+    availableProviders,
+    modelsCachedAt,
+    isLoadingModels,
 
     // Computed
     messages,
@@ -481,5 +531,7 @@ export function useConversation(): UseConversationReturn {
     setPreferredModel,
     importConversation,
     exportConversation,
+    fetchModels,
+    refreshModels,
   }
 }
