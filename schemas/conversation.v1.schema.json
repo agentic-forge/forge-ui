@@ -8,8 +8,8 @@
   "properties": {
     "version": {
       "type": "string",
-      "const": "1.0.0",
-      "description": "Schema version for migration support"
+      "pattern": "^1\\.[0-9]+\\.[0-9]+$",
+      "description": "Schema version for migration support (1.x.x)"
     },
     "metadata": {
       "$ref": "#/$defs/ConversationMetadata"
@@ -31,6 +31,11 @@
           "type": "string",
           "description": "Unique identifier for the conversation"
         },
+        "title": {
+          "type": "string",
+          "default": "",
+          "description": "User-defined title for the conversation"
+        },
         "created_at": {
           "type": "string",
           "format": "date-time",
@@ -50,13 +55,13 @@
           "default": "",
           "description": "System prompt for the conversation"
         },
-        "system_prompt_history": {
+        "tools": {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/SystemPromptHistory"
+            "$ref": "#/$defs/Tool"
           },
           "default": [],
-          "description": "History of previous system prompts"
+          "description": "Snapshot of available tools at conversation time"
         },
         "total_tokens": {
           "type": "integer",
@@ -72,18 +77,22 @@
         }
       }
     },
-    "SystemPromptHistory": {
+    "Tool": {
       "type": "object",
-      "required": ["content", "set_at"],
+      "required": ["name"],
       "properties": {
-        "content": {
+        "name": {
           "type": "string",
-          "description": "The previous system prompt content"
+          "description": "Tool name with server prefix (e.g., 'weather__get_forecast')"
         },
-        "set_at": {
+        "description": {
           "type": "string",
-          "format": "date-time",
-          "description": "ISO 8601 timestamp when this prompt was set"
+          "description": "Human-readable description of the tool"
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "JSON Schema for tool input parameters"
         }
       }
     },
@@ -117,6 +126,10 @@
         "usage": {
           "$ref": "#/$defs/TokenUsage",
           "description": "Token usage for assistant messages"
+        },
+        "thinking": {
+          "type": "string",
+          "description": "Model's reasoning/thinking content (for assistant messages)"
         },
         "tool_name": {
           "type": "string",

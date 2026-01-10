@@ -79,7 +79,7 @@ function handleCancel(): void {
     <div class="editor-content">
       <p class="editor-description text-sm text-muted">
         The system prompt sets the behavior and context for the AI assistant.
-        Changes will be versioned and saved to conversation history.
+        Export the conversation before changing if you want to preserve the previous version.
       </p>
 
       <Textarea
@@ -88,24 +88,6 @@ function handleCancel(): void {
         class="prompt-textarea"
         placeholder="You are a helpful AI assistant..."
       />
-
-      <div v-if="conversation?.metadata?.system_prompt_history?.length" class="history-section">
-        <h4 class="history-label text-sm">Previous Versions</h4>
-        <div class="history-list">
-          <div
-            v-for="(item, index) in conversation.metadata?.system_prompt_history"
-            :key="index"
-            class="history-item"
-          >
-            <span class="history-date text-xs text-muted">
-              {{ new Date(item.set_at).toLocaleString() }}
-            </span>
-            <p class="history-content text-sm">
-              {{ item.content.substring(0, 100) }}{{ item.content.length > 100 ? '...' : '' }}
-            </p>
-          </div>
-        </div>
-      </div>
     </div>
 
     <template #footer>
@@ -138,40 +120,5 @@ function handleCancel(): void {
 .prompt-textarea {
   width: 100%;
   font-family: inherit;
-}
-
-.history-section {
-  border-top: 1px solid var(--p-content-border-color);
-  padding-top: 1rem;
-}
-
-.history-label {
-  margin: 0 0 0.5rem 0;
-  font-weight: 600;
-  color: var(--p-text-muted-color);
-}
-
-.history-list {
-  max-height: 150px;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.history-item {
-  background: var(--p-content-background);
-  border: 1px solid var(--p-content-border-color);
-  padding: 0.5rem;
-  border-radius: 6px;
-}
-
-.history-date {
-  display: block;
-  margin-bottom: 0.25rem;
-}
-
-.history-content {
-  margin: 0;
 }
 </style>

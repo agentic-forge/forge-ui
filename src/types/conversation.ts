@@ -11,7 +11,7 @@
 import type { TokenUsage } from './messages'
 
 /** Current schema version for conversation export format */
-export const CONVERSATION_SCHEMA_VERSION = '1.0.0'
+export const CONVERSATION_SCHEMA_VERSION = '1.1.0'
 
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool_call' | 'tool_result'
 export type MessageStatus = 'complete' | 'cancelled' | 'error' | 'streaming'
@@ -25,6 +25,7 @@ export interface Message {
   // For assistant messages
   model?: string
   usage?: TokenUsage
+  thinking?: string
 
   // For tool_call messages
   tool_name?: string
@@ -40,18 +41,20 @@ export interface Message {
   status: MessageStatus
 }
 
-export interface SystemPromptHistory {
-  content: string
-  set_at: string
+export interface Tool {
+  name: string
+  description?: string
+  inputSchema?: Record<string, unknown>
 }
 
 export interface ConversationMetadata {
   id: string
+  title: string
   created_at: string
   updated_at: string
   model: string
   system_prompt: string
-  system_prompt_history: SystemPromptHistory[]
+  tools: Tool[]
   total_tokens: number
   message_count: number
 }
@@ -89,12 +92,6 @@ export interface HealthResponse {
   status: string
   armory_connected: boolean
   active_runs: number
-}
-
-export interface Tool {
-  name: string
-  description?: string
-  inputSchema?: Record<string, unknown>
 }
 
 export interface ToolsResponse {

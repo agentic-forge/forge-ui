@@ -4,6 +4,7 @@ import MessageBubble from './MessageBubble.vue'
 import ToolCallCard from './ToolCallCard.vue'
 import StreamingMessage from './StreamingMessage.vue'
 import { useConversation } from '@/composables/useConversation'
+import type { Message, ToolCallState } from '@/types'
 
 const {
   messages,
@@ -11,23 +12,67 @@ const {
   currentResponse,
   currentThinking,
   toolCalls,
+  isAdvancedView,
 } = useConversation()
 
 const listRef = ref<HTMLElement | null>(null)
 
+// Build tool call states from history
+function buildToolCallFromHistory(
+  callMsg: Message,
+  resultMsg: Message | undefined
+): ToolCallState {
+  return {
+    id: callMsg.tool_call_id || callMsg.id,
+    tool_name: callMsg.tool_name || 'unknown',
+    arguments: callMsg.tool_arguments || {},
+    status: resultMsg ? 'complete' : 'pending',
+    result: resultMsg?.tool_result,
+    is_error: resultMsg?.is_error || false,
+    latency_ms: resultMsg?.latency_ms,
+  }
+}
+
 // Group messages with tool calls
 const displayItems = computed(() => {
   const items: Array<{
-    type: 'message' | 'tool'
+    type: 'message' | 'tool_group'
     data: unknown
     index: number
   }> = []
 
+  // Build a map of tool_call_id -> result message
+  const toolResults = new Map<string, Message>()
+  messages.value.forEach((msg) => {
+    if (msg.role === 'tool_result' && msg.tool_call_id) {
+      toolResults.set(msg.tool_call_id, msg)
+    }
+  })
+
+  // Track which tool calls we've already added
+  const addedToolCalls = new Set<string>()
+
   messages.value.forEach((msg, index) => {
-    if (msg.role === 'tool_call' || msg.role === 'tool_result') {
-      // Skip - we'll render these as part of ToolCallCard
+    if (msg.role === 'tool_call') {
+      // Only add tool calls once (avoid duplicates)
+      if (msg.tool_call_id && !addedToolCalls.has(msg.tool_call_id)) {
+        addedToolCalls.add(msg.tool_call_id)
+        const resultMsg = toolResults.get(msg.tool_call_id)
+        const toolState = buildToolCallFromHistory(msg, resultMsg)
+
+        // Show all tool calls in advanced view, only errors in basic view
+        if (isAdvancedView.value || toolState.is_error) {
+          items.push({ type: 'tool_group', data: toolState, index })
+        }
+      }
       return
     }
+
+    if (msg.role === 'tool_result') {
+      // Skip - already handled with tool_call
+      return
+    }
+
     items.push({ type: 'message', data: msg, index })
   })
 
@@ -55,6 +100,10 @@ watch(
           v-if="item.type === 'message'"
           :message="(item.data as any)"
           :index="item.index"
+        />
+        <ToolCallCard
+          v-else-if="item.type === 'tool_group'"
+          :tool-call="(item.data as ToolCallState)"
         />
       </template>
 

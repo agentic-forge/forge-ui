@@ -12,9 +12,10 @@ const props = defineProps<{
   index: number
 }>()
 
-const { isAdvancedView, deleteMessagesFrom } = useConversation()
+const { isAdvancedView, deleteMessagesFrom, retryFromMessage } = useConversation()
 
 const copiedBlocks = ref<Set<number>>(new Set())
+const isThinkingExpanded = ref(false)
 
 // Configure marked with syntax highlighting
 marked.setOptions({
@@ -98,6 +99,10 @@ function handleDelete(): void {
     deleteMessagesFrom(props.index)
   }
 }
+
+function handleRetry(): void {
+  retryFromMessage(props.index)
+}
 </script>
 
 <template>
@@ -108,6 +113,18 @@ function handleDelete(): void {
     <div class="message-header">
       <span class="message-role">{{ isUser ? 'You' : 'Assistant' }}</span>
       <span class="message-time" :title="exactTime">{{ relativeTime }}</span>
+    </div>
+
+    <!-- Thinking section for assistant messages -->
+    <div v-if="!isUser && message.thinking && isAdvancedView" class="thinking-section">
+      <div class="thinking-header" @click="isThinkingExpanded = !isThinkingExpanded">
+        <i class="pi pi-lightbulb" />
+        <span>Thinking</span>
+        <i :class="isThinkingExpanded ? 'pi pi-chevron-up' : 'pi pi-chevron-down'" />
+      </div>
+      <div v-if="isThinkingExpanded" class="thinking-content text-sm text-muted">
+        {{ message.thinking }}
+      </div>
     </div>
 
     <div
@@ -133,6 +150,7 @@ function handleDelete(): void {
         size="small"
         severity="secondary"
         text
+        @click="handleRetry"
       />
     </div>
 
@@ -187,6 +205,38 @@ function handleDelete(): void {
   font-weight: 600;
 }
 
+.thinking-section {
+  background: color-mix(in srgb, var(--p-primary-color) 8%, transparent);
+  border: 1px solid var(--p-content-border-color);
+  border-radius: 6px;
+  margin-bottom: 0.75rem;
+  overflow: hidden;
+}
+
+.thinking-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.75rem;
+  color: var(--p-primary-color);
+  cursor: pointer;
+  user-select: none;
+}
+
+.thinking-header:hover {
+  background: color-mix(in srgb, var(--p-primary-color) 12%, transparent);
+}
+
+.thinking-content {
+  padding: 0.75rem;
+  padding-top: 0;
+  font-style: italic;
+  white-space: pre-wrap;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
 .message-content {
   line-height: 1.6;
 }
@@ -205,9 +255,9 @@ function handleDelete(): void {
   gap: 0.5rem;
   margin-top: 0.5rem;
   padding: 0.5rem;
-  background: var(--p-red-100);
+  background: color-mix(in srgb, var(--red-500) 15%, transparent);
   border-radius: 6px;
-  color: var(--p-red-600);
+  color: var(--red-500);
 }
 
 .message-actions {

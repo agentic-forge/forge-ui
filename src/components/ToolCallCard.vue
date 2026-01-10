@@ -213,8 +213,8 @@ const isResultTruncated = computed(() => {
 }
 
 .error-result {
-  background: var(--p-red-50);
-  color: var(--p-red-700);
+  background: color-mix(in srgb, var(--red-500) 15%, transparent);
+  color: var(--red-500);
 }
 
 .show-more-btn {

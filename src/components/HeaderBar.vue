@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import Button from 'primevue/button'
+import InputText from 'primevue/inputtext'
 import { useTheme } from '@/composables/useTheme'
 import { useConversation } from '@/composables/useConversation'
 import ModelSelector from './ModelSelector.vue'
@@ -13,7 +14,41 @@ const {
   toggleAdvancedView,
   checkHealth,
   refreshTools,
+  updateTitle,
 } = useConversation()
+
+const isEditingTitle = ref(false)
+const editedTitle = ref('')
+
+function startEditingTitle(): void {
+  editedTitle.value = conversation.value?.metadata.title || ''
+  isEditingTitle.value = true
+}
+
+function saveTitle(): void {
+  updateTitle(editedTitle.value.trim())
+  isEditingTitle.value = false
+}
+
+function cancelEditingTitle(): void {
+  isEditingTitle.value = false
+}
+
+function handleTitleKeydown(event: KeyboardEvent): void {
+  if (event.key === 'Enter') {
+    saveTitle()
+  } else if (event.key === 'Escape') {
+    cancelEditingTitle()
+  }
+}
+
+// Reset editing state when conversation changes
+watch(
+  () => conversation.value?.metadata.id,
+  () => {
+    isEditingTitle.value = false
+  }
+)
 
 onMounted(() => {
   checkHealth()
@@ -46,6 +81,40 @@ function getConnectionStatus(): 'connected' | 'disconnected' | 'connecting' {
     </div>
 
     <div class="header-center">
+      <!-- Conversation Title -->
+      <div v-if="conversation" class="conversation-title">
+        <template v-if="isEditingTitle">
+          <InputText
+            v-model="editedTitle"
+            placeholder="Enter conversation title..."
+            class="title-input"
+            size="small"
+            autofocus
+            @keydown="handleTitleKeydown"
+            @blur="saveTitle"
+          />
+        </template>
+        <template v-else>
+          <span
+            class="title-display"
+            :class="{ 'has-title': conversation.metadata.title }"
+            @click="startEditingTitle"
+            title="Click to edit title"
+          >
+            {{ conversation.metadata.title || 'Untitled Conversation' }}
+          </span>
+          <Button
+            icon="pi pi-pencil"
+            severity="secondary"
+            text
+            rounded
+            size="small"
+            class="edit-title-btn"
+            @click="startEditingTitle"
+          />
+        </template>
+      </div>
+
       <ModelSelector v-if="conversation" />
     </div>
 
@@ -141,7 +210,51 @@ function getConnectionStatus(): 'connected' | 'disconnected' | 'connecting' {
 .header-center {
   flex: 1;
   display: flex;
+  align-items: center;
   justify-content: center;
+  gap: 1.5rem;
+}
+
+.conversation-title {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.title-display {
+  font-size: 0.875rem;
+  color: var(--p-text-muted-color);
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+}
+
+.title-display:hover {
+  background: var(--p-content-hover-background);
+}
+
+.title-display.has-title {
+  color: var(--p-text-color);
+  font-weight: 500;
+}
+
+.title-input {
+  min-width: 200px;
+  max-width: 300px;
+}
+
+.edit-title-btn {
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.conversation-title:hover .edit-title-btn {
+  opacity: 0.6;
+}
+
+.edit-title-btn:hover {
+  opacity: 1 !important;
 }
 
 .header-right {

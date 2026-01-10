@@ -96,8 +96,10 @@ export interface UseConversationReturn {
   deleteConversation: () => Promise<void>
   sendMessage: (content: string, model?: string) => Promise<void>
   cancelGeneration: () => Promise<void>
+  retryFromMessage: (index: number) => Promise<void>
   deleteMessagesFrom: (index: number) => Promise<void>
   updateSystemPrompt: (content: string) => Promise<void>
+  updateTitle: (title: string) => void
   updateModel: (model: string) => Promise<void>
   fetchTools: () => Promise<void>
   refreshTools: () => Promise<void>
@@ -130,11 +132,12 @@ export function useConversation(): UseConversationReturn {
       version: CONVERSATION_SCHEMA_VERSION,
       metadata: {
         id: generateId(),
+        title: '',
         created_at: now,
         updated_at: now,
         model,
         system_prompt: request?.system_prompt || '',
-        system_prompt_history: [],
+        tools: [],
         total_tokens: 0,
         message_count: 0,
       },
@@ -144,6 +147,11 @@ export function useConversation(): UseConversationReturn {
     // Update health status and fetch available tools
     await checkHealth()
     await fetchTools()
+
+    // Capture tools snapshot in conversation metadata
+    if (availableTools.value.length > 0) {
+      conversation.value.metadata.tools = [...availableTools.value]
+    }
   }
 
   // Delete conversation (just clear local state)
@@ -257,6 +265,7 @@ export function useConversation(): UseConversationReturn {
           status: 'complete',
           model: conversation.value?.metadata.model,
           usage: event.usage as TokenUsage | undefined,
+          thinking: currentThinking.value || undefined,
         }
         conversation.value?.messages.push(assistantMessage)
 
@@ -314,6 +323,31 @@ export function useConversation(): UseConversationReturn {
     toolCalls.value = new Map()
   }
 
+  // Retry from a specific message index (removes error and resends)
+  async function retryFromMessage(index: number): Promise<void> {
+    if (!conversation.value || isStreaming.value) return
+
+    const messages = conversation.value.messages
+
+    // Find the user message to retry (the one at or before the index)
+    let userMessageIndex = index
+    while (userMessageIndex >= 0 && messages[userMessageIndex].role !== 'user') {
+      userMessageIndex--
+    }
+
+    if (userMessageIndex < 0) return // No user message found
+
+    const userMessage = messages[userMessageIndex]
+
+    // Remove messages from the user message onwards (including the error)
+    conversation.value.messages = messages.slice(0, userMessageIndex)
+    conversation.value.metadata.message_count = conversation.value.messages.length
+    conversation.value.metadata.updated_at = new Date().toISOString()
+
+    // Resend the user message
+    await sendMessage(userMessage.content)
+  }
+
   // Delete messages from index (local operation)
   async function deleteMessagesFrom(index: number): Promise<void> {
     if (!conversation.value) return
@@ -327,15 +361,15 @@ export function useConversation(): UseConversationReturn {
   async function updateSystemPrompt(content: string): Promise<void> {
     if (!conversation.value) return
 
-    // Save current prompt to history
-    if (conversation.value.metadata.system_prompt) {
-      conversation.value.metadata.system_prompt_history.push({
-        content: conversation.value.metadata.system_prompt,
-        set_at: conversation.value.metadata.updated_at,
-      })
-    }
-
     conversation.value.metadata.system_prompt = content
+    conversation.value.metadata.updated_at = new Date().toISOString()
+  }
+
+  // Update conversation title (local operation)
+  function updateTitle(title: string): void {
+    if (!conversation.value) return
+
+    conversation.value.metadata.title = title
     conversation.value.metadata.updated_at = new Date().toISOString()
   }
 
@@ -479,15 +513,19 @@ export function useConversation(): UseConversationReturn {
 
     // Version 0.0.0 (pre-versioned) -> 1.0.0
     // Pre-versioned files don't have the version field, add defaults
-    if (fromVersion === '0.0.0') {
+    if (fromVersion === '0.0.0' || fromVersion === '1.0.0') {
       migrated = {
         version: CONVERSATION_SCHEMA_VERSION,
         metadata: (data.metadata || {}) as Conversation['metadata'],
         messages: (data.messages || []) as Conversation['messages'],
       }
-      // Ensure required metadata fields have defaults
-      if (!migrated.metadata.system_prompt_history) {
-        migrated.metadata.system_prompt_history = []
+
+      // Migration to v1.1.0: add new fields, remove deprecated ones
+      if (migrated.metadata.title === undefined) {
+        migrated.metadata.title = ''
+      }
+      if (migrated.metadata.tools === undefined) {
+        migrated.metadata.tools = []
       }
       if (migrated.metadata.total_tokens === undefined) {
         migrated.metadata.total_tokens = 0
@@ -495,10 +533,11 @@ export function useConversation(): UseConversationReturn {
       if (migrated.metadata.message_count === undefined) {
         migrated.metadata.message_count = migrated.messages.length
       }
-    }
 
-    // Future migrations would go here:
-    // if (fromVersion === '1.0.0') { migrate to 1.1.0 }
+      // Remove deprecated system_prompt_history if present
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      delete (migrated.metadata as any).system_prompt_history
+    }
 
     return migrated
   }
@@ -548,8 +587,10 @@ export function useConversation(): UseConversationReturn {
     deleteConversation,
     sendMessage,
     cancelGeneration,
+    retryFromMessage,
     deleteMessagesFrom,
     updateSystemPrompt,
+    updateTitle,
     updateModel,
     fetchTools,
     refreshTools,
