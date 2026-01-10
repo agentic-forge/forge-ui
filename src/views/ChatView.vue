@@ -11,6 +11,8 @@ const {
   isAdvancedView,
   toggleDebugPanel,
   showDebugPanel,
+  toggleToolsPanel,
+  showToolsPanel,
   deleteConversation,
   exportConversation,
 } = useConversation()
@@ -49,6 +51,15 @@ async function handleDeleteConversation(): Promise<void> {
           size="small"
           title="Export Conversation"
           @click="exportConversation"
+        />
+        <Button
+          v-if="isAdvancedView"
+          :icon="showToolsPanel ? 'pi pi-wrench' : 'pi pi-wrench'"
+          :severity="showToolsPanel ? 'primary' : 'secondary'"
+          text
+          size="small"
+          :title="showToolsPanel ? 'Hide Tools Panel' : 'Show Tools Panel'"
+          @click="toggleToolsPanel"
         />
         <Button
           v-if="isAdvancedView"

@@ -25,6 +25,7 @@ const currentThinking = ref('')
 const toolCalls = ref<Map<string, ToolCallState>>(new Map())
 const isAdvancedView = ref(loadAdvancedView())
 const showDebugPanel = ref(false)
+const showToolsPanel = ref(false)
 const availableTools = ref<Tool[]>([])
 const healthStatus = ref<HealthResponse | null>(null)
 const messageDraft = ref(loadMessageDraft())
@@ -74,6 +75,7 @@ export interface UseConversationReturn {
   toolCalls: Ref<Map<string, ToolCallState>>
   isAdvancedView: Ref<boolean>
   showDebugPanel: Ref<boolean>
+  showToolsPanel: Ref<boolean>
   availableTools: Ref<Tool[]>
   healthStatus: Ref<HealthResponse | null>
   messageDraft: Ref<string>
@@ -97,10 +99,12 @@ export interface UseConversationReturn {
   deleteMessagesFrom: (index: number) => Promise<void>
   updateSystemPrompt: (content: string) => Promise<void>
   updateModel: (model: string) => Promise<void>
+  fetchTools: () => Promise<void>
   refreshTools: () => Promise<void>
   checkHealth: () => Promise<void>
   toggleAdvancedView: () => void
   toggleDebugPanel: () => void
+  toggleToolsPanel: () => void
   saveDraft: (content: string) => void
   clearDraft: () => void
   setPreferredModel: (model: string) => void
@@ -137,8 +141,9 @@ export function useConversation(): UseConversationReturn {
       messages: [],
     }
 
-    // Update health status
+    // Update health status and fetch available tools
     await checkHealth()
+    await fetchTools()
   }
 
   // Delete conversation (just clear local state)
@@ -213,25 +218,8 @@ export function useConversation(): UseConversationReturn {
         }
       },
       onComplete: (event) => {
-        // Add assistant message to conversation
-        const assistantMessage: Message = {
-          id: `msg_${Date.now()}`,
-          role: 'assistant',
-          content: event.response,
-          timestamp: new Date().toISOString(),
-          status: 'complete',
-          model: conversation.value?.metadata.model,
-          usage: event.usage as TokenUsage | undefined,
-        }
-        conversation.value?.messages.push(assistantMessage)
-
-        // Update token count
-        if (conversation.value && event.usage) {
-          conversation.value.metadata.total_tokens +=
-            (event.usage.prompt_tokens || 0) + (event.usage.completion_tokens || 0)
-        }
-
-        // Add tool call/result messages
+        // Add tool call/result messages first (chronological order)
+        // Tool calls happen before the final assistant response
         toolCalls.value.forEach((tc) => {
           if (conversation.value) {
             // Tool call message
@@ -259,6 +247,24 @@ export function useConversation(): UseConversationReturn {
             })
           }
         })
+
+        // Add assistant message (final response after tool execution)
+        const assistantMessage: Message = {
+          id: `msg_${Date.now()}`,
+          role: 'assistant',
+          content: event.response,
+          timestamp: new Date().toISOString(),
+          status: 'complete',
+          model: conversation.value?.metadata.model,
+          usage: event.usage as TokenUsage | undefined,
+        }
+        conversation.value?.messages.push(assistantMessage)
+
+        // Update token count
+        if (conversation.value && event.usage) {
+          conversation.value.metadata.total_tokens +=
+            (event.usage.prompt_tokens || 0) + (event.usage.completion_tokens || 0)
+        }
 
         // Update message count
         if (conversation.value) {
@@ -341,6 +347,17 @@ export function useConversation(): UseConversationReturn {
     conversation.value.metadata.updated_at = new Date().toISOString()
   }
 
+  async function fetchTools(): Promise<void> {
+    const response = await fetch(`${API_URL}/tools`)
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch tools: ${response.statusText}`)
+    }
+
+    const tools = await response.json()
+    availableTools.value = tools
+  }
+
   async function refreshTools(): Promise<void> {
     const response = await fetch(`${API_URL}/tools/refresh`, { method: 'POST' })
 
@@ -348,8 +365,8 @@ export function useConversation(): UseConversationReturn {
       throw new Error(`Failed to refresh tools: ${response.statusText}`)
     }
 
-    const data = await response.json()
-    availableTools.value = data.tools
+    // After refresh, fetch the updated tools
+    await fetchTools()
   }
 
   async function fetchModels(): Promise<void> {
@@ -415,6 +432,10 @@ export function useConversation(): UseConversationReturn {
     showDebugPanel.value = !showDebugPanel.value
   }
 
+  function toggleToolsPanel(): void {
+    showToolsPanel.value = !showToolsPanel.value
+  }
+
   function saveDraft(content: string): void {
     messageDraft.value = content
     saveMessageDraft(content)
@@ -454,7 +475,7 @@ export function useConversation(): UseConversationReturn {
 
   // Migrate conversation data from older versions
   function migrateConversation(data: Record<string, unknown>, fromVersion: string): Conversation {
-    let migrated = { ...data } as Conversation
+    let migrated = { ...data } as unknown as Conversation
 
     // Version 0.0.0 (pre-versioned) -> 1.0.0
     // Pre-versioned files don't have the version field, add defaults
@@ -506,6 +527,7 @@ export function useConversation(): UseConversationReturn {
     toolCalls,
     isAdvancedView,
     showDebugPanel,
+    showToolsPanel,
     availableTools,
     healthStatus,
     messageDraft,
@@ -529,10 +551,12 @@ export function useConversation(): UseConversationReturn {
     deleteMessagesFrom,
     updateSystemPrompt,
     updateModel,
+    fetchTools,
     refreshTools,
     checkHealth,
     toggleAdvancedView,
     toggleDebugPanel,
+    toggleToolsPanel,
     saveDraft,
     clearDraft,
     setPreferredModel,
