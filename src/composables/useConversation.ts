@@ -10,6 +10,14 @@ import type {
   TokenUsage,
   ModelInfo,
   ModelsResponse,
+  // New model management types
+  ProviderInfo,
+  GroupedModelsResponse,
+  ModelReference,
+  ModelSuggestion,
+  ModelCapabilities,
+  FetchModelsResponse,
+  AddModelResponse,
 } from '@/types'
 import { CONVERSATION_SCHEMA_VERSION } from '@/types'
 import { useSSE, type SSEConnectionStatus } from './useSSE'
@@ -34,6 +42,13 @@ const availableModels = ref<ModelInfo[]>([])
 const availableProviders = ref<string[]>([])
 const modelsCachedAt = ref<string | null>(null)
 const isLoadingModels = ref(false)
+
+// New model management state
+const providers = ref<ProviderInfo[]>([])
+const groupedModels = ref<GroupedModelsResponse | null>(null)
+const favoriteModels = ref<ModelReference[]>([])
+const recentModels = ref<ModelReference[]>([])
+const defaultModel = ref<ModelReference | null>(null)
 
 // SSE instance
 const sse = useSSE()
@@ -86,6 +101,12 @@ export interface UseConversationReturn {
   availableProviders: Ref<string[]>
   modelsCachedAt: Ref<string | null>
   isLoadingModels: Ref<boolean>
+  // New model management state
+  providers: Ref<ProviderInfo[]>
+  groupedModels: Ref<GroupedModelsResponse | null>
+  favoriteModels: Ref<ModelReference[]>
+  recentModels: Ref<ModelReference[]>
+  defaultModel: Ref<ModelReference | null>
 
   // Computed
   messages: ComputedRef<Message[]>
@@ -114,6 +135,20 @@ export interface UseConversationReturn {
   exportConversation: () => void
   fetchModels: () => Promise<void>
   refreshModels: () => Promise<void>
+  // New model management actions
+  fetchProviders: () => Promise<void>
+  fetchModelsGrouped: () => Promise<void>
+  addModelToProvider: (
+    providerId: string,
+    modelId: string,
+    displayName?: string,
+    capabilities?: ModelCapabilities
+  ) => Promise<AddModelResponse>
+  removeModelFromProvider: (providerId: string, modelId: string) => Promise<void>
+  toggleModelFavorite: (providerId: string, modelId: string) => Promise<boolean | null>
+  fetchModelsFromProvider: (providerId: string) => Promise<FetchModelsResponse>
+  getProviderSuggestions: (providerId: string) => Promise<ModelSuggestion[]>
+  setProviderEnabled: (providerId: string, enabled: boolean) => Promise<void>
 }
 
 export function useConversation(): UseConversationReturn {
@@ -437,6 +472,162 @@ export function useConversation(): UseConversationReturn {
     }
   }
 
+  // New model management methods
+
+  async function fetchProviders(): Promise<void> {
+    const response = await fetch(`${API_URL}/providers`)
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch providers: ${response.statusText}`)
+    }
+
+    const data = await response.json()
+    providers.value = data.providers
+  }
+
+  async function fetchModelsGrouped(): Promise<void> {
+    isLoadingModels.value = true
+    try {
+      const response = await fetch(`${API_URL}/models/grouped`)
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch grouped models: ${response.statusText}`)
+      }
+
+      const data: GroupedModelsResponse = await response.json()
+      groupedModels.value = data
+      favoriteModels.value = data.favorites
+      recentModels.value = data.recent
+      defaultModel.value = data.default_model
+    } finally {
+      isLoadingModels.value = false
+    }
+  }
+
+  async function addModelToProvider(
+    providerId: string,
+    modelId: string,
+    displayName?: string,
+    capabilities?: ModelCapabilities
+  ): Promise<AddModelResponse> {
+    const response = await fetch(`${API_URL}/models`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        provider: providerId,
+        model_id: modelId,
+        display_name: displayName,
+        capabilities,
+      }),
+    })
+
+    if (!response.ok) {
+      throw new Error(`Failed to add model: ${response.statusText}`)
+    }
+
+    const data: AddModelResponse = await response.json()
+
+    // Refresh the grouped models to update UI
+    await fetchModelsGrouped()
+    await fetchProviders()
+
+    return data
+  }
+
+  async function removeModelFromProvider(providerId: string, modelId: string): Promise<void> {
+    const response = await fetch(`${API_URL}/models/${providerId}/${modelId}`, {
+      method: 'DELETE',
+    })
+
+    if (!response.ok) {
+      throw new Error(`Failed to remove model: ${response.statusText}`)
+    }
+
+    // Refresh the grouped models to update UI
+    await fetchModelsGrouped()
+    await fetchProviders()
+  }
+
+  async function toggleModelFavorite(
+    providerId: string,
+    modelId: string
+  ): Promise<boolean | null> {
+    // Get current favorite status
+    const currentModel = groupedModels.value?.providers[providerId]?.chat?.find(
+      (m) => m.id === modelId
+    )
+    const newFavorited = !(currentModel?.favorited ?? false)
+
+    const response = await fetch(`${API_URL}/models/${providerId}/${modelId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ favorited: newFavorited }),
+    })
+
+    if (!response.ok) {
+      throw new Error(`Failed to toggle favorite: ${response.statusText}`)
+    }
+
+    const data = await response.json()
+
+    // Refresh the grouped models to update UI
+    await fetchModelsGrouped()
+
+    return data.model?.favorited ?? null
+  }
+
+  async function fetchModelsFromProvider(providerId: string): Promise<FetchModelsResponse> {
+    isLoadingModels.value = true
+    try {
+      const response = await fetch(`${API_URL}/models/fetch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: providerId }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.detail || `Failed to fetch models: ${response.statusText}`)
+      }
+
+      const data: FetchModelsResponse = await response.json()
+
+      // Refresh the grouped models to update UI
+      await fetchModelsGrouped()
+      await fetchProviders()
+
+      return data
+    } finally {
+      isLoadingModels.value = false
+    }
+  }
+
+  async function getProviderSuggestions(providerId: string): Promise<ModelSuggestion[]> {
+    const response = await fetch(`${API_URL}/models/suggestions/${providerId}`)
+
+    if (!response.ok) {
+      throw new Error(`Failed to get suggestions: ${response.statusText}`)
+    }
+
+    const data = await response.json()
+    return data.suggestions
+  }
+
+  async function setProviderEnabled(providerId: string, enabled: boolean): Promise<void> {
+    const response = await fetch(`${API_URL}/providers/${providerId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    })
+
+    if (!response.ok) {
+      throw new Error(`Failed to update provider: ${response.statusText}`)
+    }
+
+    // Refresh providers to update UI
+    await fetchProviders()
+  }
+
   async function checkHealth(): Promise<void> {
     try {
       const response = await fetch(`${API_URL}/health`)
@@ -577,6 +768,12 @@ export function useConversation(): UseConversationReturn {
     availableProviders,
     modelsCachedAt,
     isLoadingModels,
+    // New model management state
+    providers,
+    groupedModels,
+    favoriteModels,
+    recentModels,
+    defaultModel,
 
     // Computed
     messages,
@@ -605,5 +802,14 @@ export function useConversation(): UseConversationReturn {
     exportConversation,
     fetchModels,
     refreshModels,
+    // New model management actions
+    fetchProviders,
+    fetchModelsGrouped,
+    addModelToProvider,
+    removeModelFromProvider,
+    toggleModelFavorite,
+    fetchModelsFromProvider,
+    getProviderSuggestions,
+    setProviderEnabled,
   }
 }

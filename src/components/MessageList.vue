@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, nextTick, computed } from 'vue'
+import ProgressSpinner from 'primevue/progressspinner'
 import MessageBubble from './MessageBubble.vue'
 import ToolCallCard from './ToolCallCard.vue'
 import StreamingMessage from './StreamingMessage.vue'
@@ -14,6 +15,14 @@ const {
   toolCalls,
   isAdvancedView,
 } = useConversation()
+
+// Show loading indicator when streaming but no content yet
+const isWaitingForResponse = computed(() => {
+  return isStreaming.value &&
+    !currentResponse.value &&
+    !currentThinking.value &&
+    toolCalls.value.size === 0
+})
 
 const listRef = ref<HTMLElement | null>(null)
 
@@ -116,6 +125,15 @@ watch(
         />
       </template>
 
+      <!-- Loading indicator while waiting for first response -->
+      <div v-if="isWaitingForResponse" class="waiting-indicator">
+        <ProgressSpinner
+          style="width: 24px; height: 24px"
+          strokeWidth="4"
+        />
+        <span class="waiting-text">Thinking...</span>
+      </div>
+
       <!-- Streaming message -->
       <StreamingMessage
         v-if="isStreaming && (currentResponse || currentThinking)"
@@ -138,5 +156,22 @@ watch(
   flex-direction: column;
   max-width: 900px;
   margin: 0 auto;
+}
+
+.waiting-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem 1.25rem;
+  margin: 0.5rem 0;
+  background: var(--p-surface-card);
+  border-radius: var(--p-border-radius);
+  border: 1px solid var(--p-content-border-color);
+  align-self: flex-start;
+}
+
+.waiting-text {
+  font-size: 0.875rem;
+  color: var(--p-text-muted-color);
 }
 </style>

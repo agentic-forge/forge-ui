@@ -5,6 +5,7 @@ import InputText from 'primevue/inputtext'
 import { useTheme } from '@/composables/useTheme'
 import { useConversation } from '@/composables/useConversation'
 import ModelSelector from './ModelSelector.vue'
+import ModelManagementModal from './ModelManagementModal.vue'
 
 const { isDark, toggleTheme } = useTheme()
 const {
@@ -19,6 +20,7 @@ const {
 
 const isEditingTitle = ref(false)
 const editedTitle = ref('')
+const showModelModal = ref(false)
 
 function startEditingTitle(): void {
   editedTitle.value = conversation.value?.metadata.title || ''
@@ -115,8 +117,11 @@ function getConnectionStatus(): 'connected' | 'disconnected' | 'connecting' {
         </template>
       </div>
 
-      <ModelSelector v-if="conversation" />
+      <ModelSelector v-if="conversation" @manage-models="showModelModal = true" />
     </div>
+
+    <!-- Model Management Modal -->
+    <ModelManagementModal v-model:visible="showModelModal" />
 
     <div class="header-right">
       <Button

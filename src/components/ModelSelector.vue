@@ -2,114 +2,155 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import Select from 'primevue/select'
 import Button from 'primevue/button'
-import Checkbox from 'primevue/checkbox'
 import { useConversation } from '@/composables/useConversation'
-import type { ModelInfo } from '@/types'
+import type { ModelConfig } from '@/types'
+
+const emit = defineEmits<{
+  (e: 'manage-models'): void
+}>()
 
 const {
   conversation,
   updateModel,
   preferredModel,
   setPreferredModel,
-  availableModels,
-  availableProviders,
   isLoadingModels,
-  fetchModels,
-  refreshModels,
+  // New model management
+  groupedModels,
+  fetchModelsGrouped,
+  fetchProviders,
 } = useConversation()
 
-// Fallback models if API hasn't been called yet
-const fallbackModels: ModelInfo[] = [
-  {
-    id: 'anthropic/claude-sonnet-4',
-    name: 'Claude Sonnet 4',
-    provider: 'anthropic',
-    context_length: 200000,
-    pricing: { prompt: 0.000003, completion: 0.000015 },
-    supports_tools: true,
-    supports_vision: true,
-  },
-  {
-    id: 'openai/gpt-4o',
-    name: 'GPT-4o',
-    provider: 'openai',
-    context_length: 128000,
-    pricing: { prompt: 0.0000025, completion: 0.00001 },
-    supports_tools: true,
-    supports_vision: true,
-  },
-  {
-    id: 'google/gemini-2.0-flash-001',
-    name: 'Gemini 2.0 Flash',
-    provider: 'google',
-    context_length: 1000000,
-    pricing: { prompt: 0, completion: 0 },
-    supports_tools: true,
-    supports_vision: true,
-  },
-  {
-    id: 'deepseek/deepseek-chat',
-    name: 'DeepSeek V3',
-    provider: 'deepseek',
-    context_length: 64000,
-    pricing: { prompt: 0.00000014, completion: 0.00000028 },
-    supports_tools: true,
-    supports_vision: false,
-  },
-]
-
-// Filter state
-const selectedProvider = ref<string | null>(null)
-const filterToolsSupport = ref(false)
-const filterVisionSupport = ref(false)
-const showFilters = ref(false)
-
-// Use API models if available, fallback to hardcoded
-const models = computed(() => {
-  return availableModels.value.length > 0 ? availableModels.value : fallbackModels
+// Whether to use new grouped models (if available)
+const useNewModelSystem = computed(() => {
+  return groupedModels.value !== null && Object.keys(groupedModels.value.providers).length > 0
 })
 
-const providers = computed(() => {
-  if (availableProviders.value.length > 0) {
-    return [{ label: 'All Providers', value: null }, ...availableProviders.value.map((p) => ({
-      label: formatProviderName(p),
-      value: p,
-    }))]
-  }
-  // Fallback providers
-  const uniqueProviders = [...new Set(fallbackModels.map((m) => m.provider))]
-  return [{ label: 'All Providers', value: null }, ...uniqueProviders.map((p) => ({
-    label: formatProviderName(p),
-    value: p,
-  }))]
-})
+// Dropdown option type
+interface ModelOption {
+  label: string
+  value: string
+  provider: string
+  model: ModelConfig | null
+  isHeader?: boolean
+  isFavorite?: boolean
+  isRecent?: boolean
+}
 
-// Filtered models based on provider and feature filters
-const filteredModels = computed(() => {
-  let result = models.value
-
-  if (selectedProvider.value) {
-    result = result.filter((m) => m.provider === selectedProvider.value)
+// Build model options from grouped models - favorites first, then all models
+const modelOptions = computed((): ModelOption[] => {
+  if (!useNewModelSystem.value || !groupedModels.value) {
+    // Fallback to empty - will show placeholder
+    return []
   }
 
-  if (filterToolsSupport.value) {
-    result = result.filter((m) => m.supports_tools)
+  const options: ModelOption[] = []
+  const addedIds = new Set<string>()
+
+  // Helper to create option from model
+  const createOption = (
+    providerId: string,
+    model: ModelConfig,
+    flags: { isFavorite?: boolean; isRecent?: boolean } = {}
+  ): ModelOption => ({
+    label: model.display_name,
+    value: model.id,
+    provider: providerId,
+    model,
+    isFavorite: flags.isFavorite,
+    isRecent: flags.isRecent,
+  })
+
+  // Helper to find model by reference
+  const findModel = (providerId: string, modelId: string): ModelConfig | null => {
+    const providerData = groupedModels.value?.providers[providerId]
+    if (!providerData) return null
+    return (
+      providerData.chat.find((m) => m.id === modelId) ||
+      providerData.embedding.find((m) => m.id === modelId) ||
+      providerData.other.find((m) => m.id === modelId) ||
+      null
+    )
   }
 
-  if (filterVisionSupport.value) {
-    result = result.filter((m) => m.supports_vision)
+  // Collect all favorites from all providers
+  const favorites: Array<{ provider: string; model: ModelConfig }> = []
+  for (const [providerId, categories] of Object.entries(groupedModels.value.providers)) {
+    for (const model of [...categories.chat, ...categories.embedding, ...categories.other]) {
+      if (model.favorited) {
+        favorites.push({ provider: providerId, model })
+      }
+    }
   }
 
-  return result
-})
+  // Add favorites section
+  if (favorites.length > 0) {
+    options.push({
+      label: 'Favorites',
+      value: '__header_favorites__',
+      provider: '',
+      model: null,
+      isHeader: true,
+    })
+    for (const { provider, model } of favorites) {
+      options.push(createOption(provider, model, { isFavorite: true }))
+      addedIds.add(`${provider}/${model.id}`)
+    }
+  }
 
-// Model options for dropdown
-const modelOptions = computed(() => {
-  return filteredModels.value.map((m) => ({
-    label: m.name,
-    value: m.id,
-    model: m,
-  }))
+  // Add recent section (exclude already-added favorites)
+  const recentModels: Array<{ provider: string; model: ModelConfig }> = []
+  for (const ref of groupedModels.value.recent || []) {
+    const key = `${ref.provider}/${ref.model_id}`
+    if (!addedIds.has(key)) {
+      const model = findModel(ref.provider, ref.model_id)
+      if (model) {
+        recentModels.push({ provider: ref.provider, model })
+      }
+    }
+  }
+
+  if (recentModels.length > 0) {
+    options.push({
+      label: 'Recent',
+      value: '__header_recent__',
+      provider: '',
+      model: null,
+      isHeader: true,
+    })
+    for (const { provider, model } of recentModels) {
+      options.push(createOption(provider, model, { isRecent: true }))
+      addedIds.add(`${provider}/${model.id}`)
+    }
+  }
+
+  // Add all models section (exclude already-added)
+  const allModels: Array<{ provider: string; model: ModelConfig }> = []
+  for (const [providerId, categories] of Object.entries(groupedModels.value.providers)) {
+    for (const model of categories.chat) {
+      const key = `${providerId}/${model.id}`
+      if (!addedIds.has(key)) {
+        allModels.push({ provider: providerId, model })
+      }
+    }
+  }
+
+  if (allModels.length > 0) {
+    options.push({
+      label: 'All Models',
+      value: '__header_all__',
+      provider: '',
+      model: null,
+      isHeader: true,
+    })
+    // Sort by display name
+    allModels.sort((a, b) => a.model.display_name.localeCompare(b.model.display_name))
+    for (const { provider, model } of allModels) {
+      options.push(createOption(provider, model))
+    }
+  }
+
+  return options
 })
 
 // Use conversation model if available, otherwise use preferred model
@@ -131,22 +172,15 @@ function formatProviderName(provider: string): string {
     openai: 'OpenAI',
     google: 'Google',
     deepseek: 'DeepSeek',
+    openrouter: 'OpenRouter',
     moonshotai: 'Kimi',
     qwen: 'Qwen',
   }
   return names[provider] || provider.charAt(0).toUpperCase() + provider.slice(1)
 }
 
-function formatPrice(price: number): string {
-  if (price === 0) return 'Free'
-  // Convert to price per 1M tokens
-  const perMillion = price * 1_000_000
-  if (perMillion < 0.01) return '<$0.01/M'
-  return `$${perMillion.toFixed(2)}/M`
-}
-
 async function handleModelChange(model: string): Promise<void> {
-  if (!model) return
+  if (!model || model.startsWith('__header_')) return
 
   // Always save as preferred model
   setPreferredModel(model)
@@ -158,30 +192,30 @@ async function handleModelChange(model: string): Promise<void> {
 }
 
 async function handleRefresh(): Promise<void> {
-  await refreshModels()
+  await Promise.all([fetchProviders(), fetchModelsGrouped()])
 }
 
 const displayLabel = computed(() => {
-  const model = models.value.find((m) => m.id === selectedModel.value)
-  return model?.name || selectedModel.value
+  // Find the model in options
+  const option = modelOptions.value.find((o) => o.value === selectedModel.value && !o.isHeader)
+  return option?.label || selectedModel.value
 })
 
-const activeFiltersCount = computed(() => {
-  let count = 0
-  if (selectedProvider.value) count++
-  if (filterToolsSupport.value) count++
-  if (filterVisionSupport.value) count++
-  return count
-})
+function handleManageModels(): void {
+  emit('manage-models')
+}
+
+// Check if option is selectable (not a header)
+function isOptionDisabled(option: ModelOption): boolean {
+  return option.isHeader === true
+}
 
 // Fetch models on mount if not already loaded
 onMounted(async () => {
-  if (availableModels.value.length === 0) {
-    try {
-      await fetchModels()
-    } catch (e) {
-      console.warn('Failed to fetch models, using fallback:', e)
-    }
+  try {
+    await Promise.all([fetchProviders(), fetchModelsGrouped()])
+  } catch (e) {
+    console.warn('Failed to load models:', e)
   }
 })
 </script>
@@ -194,6 +228,7 @@ onMounted(async () => {
         :options="modelOptions"
         optionLabel="label"
         optionValue="value"
+        :optionDisabled="isOptionDisabled"
         placeholder="Select Model"
         class="model-dropdown"
         :loading="isLoadingModels"
@@ -207,33 +242,40 @@ onMounted(async () => {
           <span v-else>{{ slotProps.placeholder }}</span>
         </template>
         <template #option="slotProps">
-          <div class="model-option">
+          <!-- Section header -->
+          <div v-if="slotProps.option.isHeader" class="model-header">
+            <i
+              :class="[
+                'pi',
+                slotProps.option.value === '__header_favorites__' ? 'pi-star-fill' :
+                slotProps.option.value === '__header_recent__' ? 'pi-clock' : 'pi-list'
+              ]"
+            />
+            <span>{{ slotProps.option.label }}</span>
+          </div>
+          <!-- Model option -->
+          <div v-else class="model-option">
             <div class="model-option-main">
-              <span class="model-name">{{ slotProps.option.label }}</span>
-              <span class="model-provider">{{ formatProviderName(slotProps.option.model.provider) }}</span>
+              <div class="model-name-row">
+                <i v-if="slotProps.option.isFavorite" class="pi pi-star-fill favorite-icon" />
+                <span class="model-name">{{ slotProps.option.label }}</span>
+              </div>
+              <span class="model-provider">{{ formatProviderName(slotProps.option.provider) }}</span>
             </div>
             <div class="model-option-meta">
-              <span v-if="slotProps.option.model.supports_tools" class="badge badge-tools" title="Supports tool calling">
+              <span v-if="slotProps.option.model?.capabilities?.tools" class="badge badge-tools" title="Supports tool calling">
                 <i class="pi pi-wrench" />
               </span>
-              <span v-if="slotProps.option.model.supports_vision" class="badge badge-vision" title="Supports vision">
+              <span v-if="slotProps.option.model?.capabilities?.vision" class="badge badge-vision" title="Supports vision">
                 <i class="pi pi-eye" />
               </span>
-              <span class="model-price">{{ formatPrice(slotProps.option.model.pricing.prompt) }}</span>
+              <span v-if="slotProps.option.model?.capabilities?.reasoning" class="badge badge-reasoning" title="Supports reasoning">
+                <i class="pi pi-lightbulb" />
+              </span>
             </div>
           </div>
         </template>
       </Select>
-
-      <Button
-        icon="pi pi-filter"
-        :severity="activeFiltersCount > 0 ? 'primary' : 'secondary'"
-        text
-        rounded
-        :badge="activeFiltersCount > 0 ? String(activeFiltersCount) : undefined"
-        title="Filter models"
-        @click="showFilters = !showFilters"
-      />
 
       <Button
         icon="pi pi-refresh"
@@ -241,37 +283,18 @@ onMounted(async () => {
         text
         rounded
         :loading="isLoadingModels"
-        title="Refresh models from OpenRouter"
+        title="Refresh models"
         @click="handleRefresh"
       />
-    </div>
 
-    <div v-if="showFilters" class="filters-panel">
-      <div class="filter-row">
-        <label>Provider</label>
-        <Select
-          v-model="selectedProvider"
-          :options="providers"
-          optionLabel="label"
-          optionValue="value"
-          placeholder="All Providers"
-          class="provider-dropdown"
-        />
-      </div>
-
-      <div class="filter-row checkboxes">
-        <label class="checkbox-label">
-          <Checkbox v-model="filterToolsSupport" :binary="true" />
-          <i class="pi pi-wrench" />
-          <span>Tools</span>
-        </label>
-
-        <label class="checkbox-label">
-          <Checkbox v-model="filterVisionSupport" :binary="true" />
-          <i class="pi pi-eye" />
-          <span>Vision</span>
-        </label>
-      </div>
+      <Button
+        icon="pi pi-cog"
+        severity="secondary"
+        text
+        rounded
+        title="Manage models"
+        @click="handleManageModels"
+      />
     </div>
   </div>
 </template>
@@ -298,6 +321,25 @@ onMounted(async () => {
   gap: 0.5rem;
 }
 
+/* Section headers */
+.model-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--p-text-muted-color);
+  cursor: default;
+}
+
+.model-header i {
+  font-size: 0.625rem;
+}
+
+/* Model options */
 .model-option {
   display: flex;
   justify-content: space-between;
@@ -313,6 +355,17 @@ onMounted(async () => {
   gap: 0.125rem;
 }
 
+.model-name-row {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.favorite-icon {
+  font-size: 0.625rem;
+  color: var(--p-yellow-500);
+}
+
 .model-name {
   font-weight: 500;
   color: var(--p-text-color);
@@ -326,7 +379,7 @@ onMounted(async () => {
 .model-option-meta {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.375rem;
 }
 
 .badge {
@@ -349,56 +402,8 @@ onMounted(async () => {
   color: var(--p-green-500);
 }
 
-.model-price {
-  font-size: 0.75rem;
-  color: var(--p-text-muted-color);
-  min-width: 4rem;
-  text-align: right;
-}
-
-.filters-panel {
-  margin-top: 0.5rem;
-  padding: 0.75rem;
-  border: 1px solid var(--p-content-border-color);
-  border-radius: var(--p-border-radius);
-  background: var(--p-surface-ground);
-}
-
-.filter-row {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.filter-row + .filter-row {
-  margin-top: 0.5rem;
-}
-
-.filter-row > label:first-child {
-  min-width: 4rem;
-  font-size: 0.875rem;
-  color: var(--p-text-muted-color);
-}
-
-.provider-dropdown {
-  flex: 1;
-}
-
-.filter-row.checkboxes {
-  gap: 1rem;
-}
-
-.checkbox-label {
-  display: flex;
-  align-items: center;
-  gap: 0.375rem;
-  cursor: pointer;
-  font-size: 0.875rem;
-  color: var(--p-text-color);
-}
-
-.checkbox-label i {
-  font-size: 0.75rem;
-  color: var(--p-text-muted-color);
+.badge-reasoning {
+  background: color-mix(in srgb, var(--p-purple-500) 20%, transparent);
+  color: var(--p-purple-500);
 }
 </style>
