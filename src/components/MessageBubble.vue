@@ -6,13 +6,28 @@ import DOMPurify from 'dompurify'
 import Button from 'primevue/button'
 import type { Message, TokenUsage } from '@/types'
 import { useConversation } from '@/composables/useConversation'
+import ContextProgressBar from './ContextProgressBar.vue'
 
 const props = defineProps<{
   message: Message
   index: number
 }>()
 
-const { isAdvancedView, deleteMessagesFrom, retryFromMessage } = useConversation()
+const {
+  isAdvancedView,
+  advancedViewSettings,
+  deleteMessagesFrom,
+  retryFromMessage,
+  getContextInfoForMessage,
+} = useConversation()
+
+// Get context info for this message
+const contextInfo = computed(() => {
+  if (!isAdvancedView.value || !advancedViewSettings.value.showContextSize) {
+    return null
+  }
+  return getContextInfoForMessage(props.index)
+})
 
 const copiedBlocks = ref<Set<number>>(new Set())
 const isThinkingExpanded = ref(false)
@@ -116,7 +131,7 @@ function handleRetry(): void {
     </div>
 
     <!-- Thinking section for assistant messages -->
-    <div v-if="!isUser && message.thinking && isAdvancedView" class="thinking-section">
+    <div v-if="!isUser && message.thinking && isAdvancedView && advancedViewSettings.showThinkingSection" class="thinking-section">
       <div class="thinking-header" @click="isThinkingExpanded = !isThinkingExpanded">
         <i class="pi pi-lightbulb" />
         <span>Thinking</span>
@@ -134,12 +149,22 @@ function handleRetry(): void {
     />
 
     <div v-if="isAdvancedView && !isUser" class="message-footer">
-      <span v-if="message.model" class="message-model text-xs text-muted">
-        {{ message.model }}
-      </span>
-      <span v-if="message.usage" class="message-usage text-xs text-muted">
-        {{ formatUsage(message.usage) }}
-      </span>
+      <!-- Context progress bar -->
+      <ContextProgressBar
+        v-if="contextInfo"
+        :cumulativeTokens="contextInfo.cumulativeTokens"
+        :contextLimit="contextInfo.contextLimit"
+        :perTurnInput="contextInfo.perTurnInput"
+        class="context-bar"
+      />
+      <div class="footer-info">
+        <span v-if="message.model && advancedViewSettings.showModelName" class="message-model text-xs text-muted">
+          {{ message.model }}
+        </span>
+        <span v-if="message.usage && advancedViewSettings.showTokenUsage" class="message-usage text-xs text-muted">
+          {{ formatUsage(message.usage) }}
+        </span>
+      </div>
     </div>
 
     <div v-if="message.status === 'error'" class="message-error">
@@ -243,10 +268,20 @@ function handleRetry(): void {
 
 .message-footer {
   display: flex;
-  gap: 1rem;
+  flex-direction: column;
+  gap: 0.5rem;
   margin-top: 0.75rem;
   padding-top: 0.5rem;
   border-top: 1px solid var(--p-content-border-color);
+}
+
+.context-bar {
+  width: 100%;
+}
+
+.footer-info {
+  display: flex;
+  gap: 1rem;
 }
 
 .message-error {

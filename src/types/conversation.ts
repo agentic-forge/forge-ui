@@ -151,3 +151,26 @@ export interface ToolCallState {
   is_error?: boolean
   latency_ms?: number
 }
+
+/**
+ * Advanced View Settings
+ *
+ * Controls which information is displayed in the advanced view mode.
+ * Persisted to localStorage.
+ */
+export interface AdvancedViewSettings {
+  showContextSize: boolean
+  showTokenUsage: boolean
+  showThinkingSection: boolean
+  showModelName: boolean
+}
+
+/**
+ * Context tracking information for a message
+ */
+export interface ContextInfo {
+  cumulativeTokens: number
+  perTurnInput: number
+  contextLimit: number
+  percentUsed: number
+}

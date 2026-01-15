@@ -6,6 +6,7 @@ import { useTheme } from '@/composables/useTheme'
 import { useConversation } from '@/composables/useConversation'
 import ModelSelector from './ModelSelector.vue'
 import ModelManagementModal from './ModelManagementModal.vue'
+import AdvancedViewSettingsPopover from './AdvancedViewSettingsPopover.vue'
 
 const { isDark, toggleTheme } = useTheme()
 const {
@@ -133,6 +134,9 @@ function getConnectionStatus(): 'connected' | 'disconnected' | 'connecting' {
         title="Refresh Tools"
         @click="refreshTools"
       />
+
+      <!-- Display settings popover (advanced view only) -->
+      <AdvancedViewSettingsPopover v-if="isAdvancedView" />
 
       <Button
         :icon="isAdvancedView ? 'pi pi-cog' : 'pi pi-eye'"

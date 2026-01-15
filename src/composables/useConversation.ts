@@ -10,6 +10,8 @@ import type {
   TokenUsage,
   ModelInfo,
   ModelsResponse,
+  AdvancedViewSettings,
+  ContextInfo,
   // New model management types
   ProviderInfo,
   GroupedModelsResponse,
@@ -50,6 +52,16 @@ const favoriteModels = ref<ModelReference[]>([])
 const recentModels = ref<ModelReference[]>([])
 const defaultModel = ref<ModelReference | null>(null)
 
+// Advanced view settings
+const ADVANCED_VIEW_SETTINGS_KEY = 'forge-ui-advanced-settings'
+const DEFAULT_ADVANCED_VIEW_SETTINGS: AdvancedViewSettings = {
+  showContextSize: true,
+  showTokenUsage: true,
+  showThinkingSection: true,
+  showModelName: true,
+}
+const advancedViewSettings = ref<AdvancedViewSettings>(loadAdvancedViewSettings())
+
 // SSE instance
 const sse = useSSE()
 
@@ -75,6 +87,22 @@ function loadPreferredModel(): string {
 
 function savePreferredModel(value: string): void {
   localStorage.setItem('forge-ui-preferred-model', value)
+}
+
+function loadAdvancedViewSettings(): AdvancedViewSettings {
+  const stored = localStorage.getItem(ADVANCED_VIEW_SETTINGS_KEY)
+  if (stored) {
+    try {
+      return { ...DEFAULT_ADVANCED_VIEW_SETTINGS, ...JSON.parse(stored) }
+    } catch {
+      return DEFAULT_ADVANCED_VIEW_SETTINGS
+    }
+  }
+  return DEFAULT_ADVANCED_VIEW_SETTINGS
+}
+
+function saveAdvancedViewSettings(settings: AdvancedViewSettings): void {
+  localStorage.setItem(ADVANCED_VIEW_SETTINGS_KEY, JSON.stringify(settings))
 }
 
 function generateId(): string {
@@ -108,9 +136,13 @@ export interface UseConversationReturn {
   recentModels: Ref<ModelReference[]>
   defaultModel: Ref<ModelReference | null>
 
+  // Advanced view settings
+  advancedViewSettings: Ref<AdvancedViewSettings>
+
   // Computed
   messages: ComputedRef<Message[]>
   isConnected: ComputedRef<boolean>
+  currentModelContextLength: ComputedRef<number>
 
   // Actions
   createConversation: (request?: CreateConversationRequest) => Promise<void>
@@ -149,6 +181,9 @@ export interface UseConversationReturn {
   fetchModelsFromProvider: (providerId: string) => Promise<FetchModelsResponse>
   getProviderSuggestions: (providerId: string) => Promise<ModelSuggestion[]>
   setProviderEnabled: (providerId: string, enabled: boolean) => Promise<void>
+  // Advanced view settings actions
+  updateAdvancedViewSettings: (settings: Partial<AdvancedViewSettings>) => void
+  getContextInfoForMessage: (messageIndex: number) => ContextInfo | null
 }
 
 export function useConversation(): UseConversationReturn {
@@ -157,6 +192,49 @@ export function useConversation(): UseConversationReturn {
   const isConnected = computed(
     () => healthStatus.value?.status === 'ok' || healthStatus.value?.status === 'healthy'
   )
+
+  // Get current model's context length
+  const currentModelContextLength = computed(() => {
+    if (!conversation.value) return 200000 // Default fallback
+    const modelId = conversation.value.metadata.model
+    const model = availableModels.value.find((m) => m.id === modelId)
+    return model?.context_length || 200000
+  })
+
+  // Update advanced view settings
+  function updateAdvancedViewSettings(settings: Partial<AdvancedViewSettings>): void {
+    advancedViewSettings.value = { ...advancedViewSettings.value, ...settings }
+    saveAdvancedViewSettings(advancedViewSettings.value)
+  }
+
+  // Calculate context info for a specific message
+  function getContextInfoForMessage(messageIndex: number): ContextInfo | null {
+    if (!conversation.value) return null
+
+    const msgs = conversation.value.messages
+    const targetMsg = msgs[messageIndex]
+
+    // Only assistant messages have usage data
+    if (targetMsg.role !== 'assistant' || !targetMsg.usage) return null
+
+    // Calculate cumulative tokens up to this message
+    let cumulativeTokens = 0
+    for (let i = 0; i <= messageIndex; i++) {
+      const msg = msgs[i]
+      if (msg.role === 'assistant' && msg.usage) {
+        cumulativeTokens += msg.usage.prompt_tokens + msg.usage.completion_tokens
+      }
+    }
+
+    const contextLimit = currentModelContextLength.value
+
+    return {
+      cumulativeTokens,
+      perTurnInput: targetMsg.usage.prompt_tokens,
+      contextLimit,
+      percentUsed: (cumulativeTokens / contextLimit) * 100,
+    }
+  }
 
   // Create conversation locally (no server call)
   async function createConversation(request?: CreateConversationRequest): Promise<void> {
@@ -775,9 +853,13 @@ export function useConversation(): UseConversationReturn {
     recentModels,
     defaultModel,
 
+    // Advanced view settings
+    advancedViewSettings,
+
     // Computed
     messages,
     isConnected,
+    currentModelContextLength,
 
     // Actions
     createConversation,
@@ -811,5 +893,8 @@ export function useConversation(): UseConversationReturn {
     fetchModelsFromProvider,
     getProviderSuggestions,
     setProviderEnabled,
+    // Advanced view settings actions
+    updateAdvancedViewSettings,
+    getContextInfoForMessage,
   }
 }
