@@ -59,6 +59,7 @@ const DEFAULT_ADVANCED_VIEW_SETTINGS: AdvancedViewSettings = {
   showTokenUsage: true,
   showThinkingSection: true,
   showModelName: true,
+  enableToolCalling: true,
 }
 const advancedViewSettings = ref<AdvancedViewSettings>(loadAdvancedViewSettings())
 
@@ -303,11 +304,14 @@ export function useConversation(): UseConversationReturn {
       }))
 
     // Build request body
+    // In advanced mode, respect the enableToolCalling setting; in basic mode, always enable tools
+    const enableTools = isAdvancedView.value ? advancedViewSettings.value.enableToolCalling : true
     const requestBody = {
       user_message: content,
       messages: messageHistory,
       system_prompt: conversation.value.metadata.system_prompt || null,
       model: model || conversation.value.metadata.model || null,
+      enable_tools: enableTools,
     }
 
     // Connect to SSE via POST (fire and forget - handlers will be called)

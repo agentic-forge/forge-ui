@@ -163,6 +163,7 @@ export interface AdvancedViewSettings {
   showTokenUsage: boolean
   showThinkingSection: boolean
   showModelName: boolean
+  enableToolCalling: boolean
 }
 
 /**

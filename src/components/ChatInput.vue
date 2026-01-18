@@ -6,11 +6,18 @@ import { useConversation } from '@/composables/useConversation'
 
 const {
   isStreaming,
+  isAdvancedView,
+  advancedViewSettings,
+  updateAdvancedViewSettings,
   messageDraft,
   sendMessage,
   cancelGeneration,
   saveDraft,
 } = useConversation()
+
+function toggleToolCalling(): void {
+  updateAdvancedViewSettings({ enableToolCalling: !advancedViewSettings.value.enableToolCalling })
+}
 
 const inputText = ref(messageDraft.value)
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
@@ -74,6 +81,20 @@ onUnmounted(() => {
 
 <template>
   <div class="chat-input-container">
+    <!-- Input header with options (advanced mode only) -->
+    <div v-if="isAdvancedView" class="input-header">
+      <button
+        type="button"
+        class="tools-toggle"
+        :class="{ 'tools-enabled': advancedViewSettings.enableToolCalling }"
+        :title="advancedViewSettings.enableToolCalling ? 'Tools enabled - click to disable' : 'Tools disabled - click to enable'"
+        @click="toggleToolCalling"
+      >
+        <span class="tools-status-dot" />
+        <i class="pi pi-wrench" />
+        <span class="tools-label">Tools</span>
+      </button>
+    </div>
     <div class="input-wrapper">
       <Textarea
         ref="textareaRef"
@@ -176,5 +197,64 @@ onUnmounted(() => {
   margin-top: 0.5rem;
   text-align: center;
   opacity: 0.7;
+}
+
+.input-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.tools-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.25rem 0.625rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--p-text-muted-color);
+  background: transparent;
+  border: 1px solid var(--p-content-border-color);
+  border-radius: 1rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: inherit;
+}
+
+.tools-toggle:hover {
+  background: var(--p-content-hover-background);
+  border-color: var(--p-text-muted-color);
+}
+
+.tools-toggle.tools-enabled {
+  color: var(--p-text-color);
+  border-color: var(--p-primary-color);
+  background: color-mix(in srgb, var(--p-primary-color) 10%, transparent);
+}
+
+.tools-toggle.tools-enabled:hover {
+  background: color-mix(in srgb, var(--p-primary-color) 15%, transparent);
+}
+
+.tools-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--p-text-muted-color);
+  transition: all 0.2s ease;
+}
+
+.tools-toggle.tools-enabled .tools-status-dot {
+  background: var(--p-green-500);
+  box-shadow: 0 0 4px var(--p-green-500);
+}
+
+.tools-toggle i {
+  font-size: 0.75rem;
+}
+
+.tools-label {
+  line-height: 1;
 }
 </style>
