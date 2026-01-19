@@ -21,7 +21,7 @@ const renderedResponse = computed(() => {
     <!-- Thinking section -->
     <div v-if="thinking && isAdvancedView" class="thinking-section">
       <div class="thinking-header">
-        <i class="pi pi-lightbulb" />
+        <i class="pi pi-lightbulb" ></i>
         <span>Thinking...</span>
       </div>
       <div class="thinking-content text-sm text-muted">
@@ -34,7 +34,7 @@ const renderedResponse = computed(() => {
       <div class="message-header">
         <span class="message-role">Assistant</span>
         <span class="streaming-indicator">
-          <i class="pi pi-spin pi-spinner" />
+          <i class="pi pi-spin pi-spinner" ></i>
           Generating...
         </span>
       </div>
@@ -42,11 +42,11 @@ const renderedResponse = computed(() => {
         v-if="response"
         class="message-content"
         v-html="renderedResponse"
-      />
+      ></div>
       <div v-else class="typing-indicator">
-        <span class="dot" />
-        <span class="dot" />
-        <span class="dot" />
+        <span class="dot" ></span>
+        <span class="dot" ></span>
+        <span class="dot" ></span>
       </div>
     </div>
   </div>

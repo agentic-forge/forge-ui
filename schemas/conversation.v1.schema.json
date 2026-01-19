@@ -74,6 +74,11 @@
           "minimum": 0,
           "default": 0,
           "description": "Number of messages in the conversation"
+        },
+        "use_toon_format": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether TOON format was requested for tool results in this conversation"
         }
       }
     },
@@ -156,6 +161,19 @@
           "type": "number",
           "minimum": 0,
           "description": "Tool execution latency in milliseconds"
+        },
+        "result_format": {
+          "type": "string",
+          "enum": ["json", "toon"],
+          "description": "Format of the tool result (for tool_result messages)"
+        },
+        "enable_tools": {
+          "type": "boolean",
+          "description": "Whether tool calling was enabled for this turn (for user messages)"
+        },
+        "use_toon_format": {
+          "type": "boolean",
+          "description": "Whether TOON format was requested for this turn (for user messages)"
         }
       },
       "allOf": [

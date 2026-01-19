@@ -60,6 +60,7 @@ const DEFAULT_ADVANCED_VIEW_SETTINGS: AdvancedViewSettings = {
   showThinkingSection: true,
   showModelName: true,
   enableToolCalling: true,
+  useToonFormat: false,
 }
 const advancedViewSettings = ref<AdvancedViewSettings>(loadAdvancedViewSettings())
 
@@ -277,13 +278,20 @@ export function useConversation(): UseConversationReturn {
   async function sendMessage(content: string, model?: string): Promise<void> {
     if (!conversation.value || isStreaming.value) return
 
-    // Add user message to local state
+    // Determine per-turn settings before creating the message
+    // In advanced mode, respect the settings; in basic mode, use defaults
+    const enableTools = isAdvancedView.value ? advancedViewSettings.value.enableToolCalling : true
+    const useToonFormat = isAdvancedView.value ? advancedViewSettings.value.useToonFormat : false
+
+    // Add user message to local state with per-turn settings
     const userMessage: Message = {
       id: `msg_${Date.now()}`,
       role: 'user',
       content,
       timestamp: new Date().toISOString(),
       status: 'complete',
+      enable_tools: enableTools,
+      use_toon_format: useToonFormat,
     }
     conversation.value.messages.push(userMessage)
     conversation.value.metadata.message_count = conversation.value.messages.length
@@ -303,15 +311,18 @@ export function useConversation(): UseConversationReturn {
         content: m.content,
       }))
 
-    // Build request body
-    // In advanced mode, respect the enableToolCalling setting; in basic mode, always enable tools
-    const enableTools = isAdvancedView.value ? advancedViewSettings.value.enableToolCalling : true
+    // Track TOON usage in conversation metadata
+    if (useToonFormat && !conversation.value.metadata.use_toon_format) {
+      conversation.value.metadata.use_toon_format = true
+    }
+
     const requestBody = {
       user_message: content,
       messages: messageHistory,
       system_prompt: conversation.value.metadata.system_prompt || null,
       model: model || conversation.value.metadata.model || null,
       enable_tools: enableTools,
+      use_toon_format: useToonFormat,
     }
 
     // Connect to SSE via POST (fire and forget - handlers will be called)

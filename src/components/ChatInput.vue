@@ -19,6 +19,10 @@ function toggleToolCalling(): void {
   updateAdvancedViewSettings({ enableToolCalling: !advancedViewSettings.value.enableToolCalling })
 }
 
+function toggleToonFormat(): void {
+  updateAdvancedViewSettings({ useToonFormat: !advancedViewSettings.value.useToonFormat })
+}
+
 const inputText = ref(messageDraft.value)
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
 const showStopButton = ref(false)
@@ -90,9 +94,20 @@ onUnmounted(() => {
         :title="advancedViewSettings.enableToolCalling ? 'Tools enabled - click to disable' : 'Tools disabled - click to enable'"
         @click="toggleToolCalling"
       >
-        <span class="tools-status-dot" />
-        <i class="pi pi-wrench" />
+        <span class="tools-status-dot" ></span>
+        <i class="pi pi-wrench" ></i>
         <span class="tools-label">Tools</span>
+      </button>
+      <button
+        type="button"
+        class="toon-toggle"
+        :class="{ 'toon-enabled': advancedViewSettings.useToonFormat }"
+        :title="advancedViewSettings.useToonFormat ? 'TOON format enabled - reduces tokens for tool results' : 'TOON format disabled - click to enable'"
+        @click="toggleToonFormat"
+      >
+        <span class="toon-status-dot" ></span>
+        <i class="pi pi-bolt" ></i>
+        <span class="toon-label">TOON</span>
       </button>
     </div>
     <div class="input-wrapper">
@@ -124,7 +139,7 @@ onUnmounted(() => {
           @click="cancelGeneration"
         />
         <span v-else class="streaming-indicator">
-          <i class="pi pi-spin pi-spinner" />
+          <i class="pi pi-spin pi-spinner" ></i>
         </span>
       </div>
     </div>
@@ -255,6 +270,59 @@ onUnmounted(() => {
 }
 
 .tools-label {
+  line-height: 1;
+}
+
+/* TOON Toggle - similar to tools toggle but with orange accent */
+.toon-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.25rem 0.625rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--p-text-muted-color);
+  background: transparent;
+  border: 1px solid var(--p-content-border-color);
+  border-radius: 1rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: inherit;
+}
+
+.toon-toggle:hover {
+  background: var(--p-content-hover-background);
+  border-color: var(--p-text-muted-color);
+}
+
+.toon-toggle.toon-enabled {
+  color: var(--p-text-color);
+  border-color: var(--p-green-500);
+  background: color-mix(in srgb, var(--p-green-500) 10%, transparent);
+}
+
+.toon-toggle.toon-enabled:hover {
+  background: color-mix(in srgb, var(--p-green-500) 15%, transparent);
+}
+
+.toon-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--p-text-muted-color);
+  transition: all 0.2s ease;
+}
+
+.toon-toggle.toon-enabled .toon-status-dot {
+  background: var(--p-green-500);
+  box-shadow: 0 0 4px var(--p-green-500);
+}
+
+.toon-toggle i {
+  font-size: 0.75rem;
+}
+
+.toon-label {
   line-height: 1;
 }
 </style>

@@ -63,7 +63,7 @@ function copyEvent(event: DebugEvent): void {
   <div class="debug-panel">
     <div class="debug-header">
       <span class="debug-title">
-        <i class="pi pi-code" />
+        <i class="pi pi-code" ></i>
         Debug Events
       </span>
       <div class="debug-actions">
@@ -105,7 +105,7 @@ function copyEvent(event: DebugEvent): void {
         <pre class="event-data">{{ event.raw }}</pre>
       </div>
       <div v-if="events.length === 0" class="no-events">
-        <i class="pi pi-inbox" />
+        <i class="pi pi-inbox" ></i>
         <span>No events yet</span>
       </div>
     </div>

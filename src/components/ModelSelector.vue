@@ -236,7 +236,7 @@ onMounted(async () => {
       >
         <template #value="slotProps">
           <div v-if="slotProps.value" class="selected-model">
-            <i class="pi pi-microchip" />
+            <i class="pi pi-microchip" ></i>
             <span>{{ displayLabel }}</span>
           </div>
           <span v-else>{{ slotProps.placeholder }}</span>
@@ -250,27 +250,27 @@ onMounted(async () => {
                 slotProps.option.value === '__header_favorites__' ? 'pi-star-fill' :
                 slotProps.option.value === '__header_recent__' ? 'pi-clock' : 'pi-list'
               ]"
-            />
+            ></i>
             <span>{{ slotProps.option.label }}</span>
           </div>
           <!-- Model option -->
           <div v-else class="model-option">
             <div class="model-option-main">
               <div class="model-name-row">
-                <i v-if="slotProps.option.isFavorite" class="pi pi-star-fill favorite-icon" />
+                <i v-if="slotProps.option.isFavorite" class="pi pi-star-fill favorite-icon" ></i>
                 <span class="model-name">{{ slotProps.option.label }}</span>
               </div>
               <span class="model-provider">{{ formatProviderName(slotProps.option.provider) }}</span>
             </div>
             <div class="model-option-meta">
               <span v-if="slotProps.option.model?.capabilities?.tools" class="badge badge-tools" title="Supports tool calling">
-                <i class="pi pi-wrench" />
+                <i class="pi pi-wrench" ></i>
               </span>
               <span v-if="slotProps.option.model?.capabilities?.vision" class="badge badge-vision" title="Supports vision">
-                <i class="pi pi-eye" />
+                <i class="pi pi-eye" ></i>
               </span>
               <span v-if="slotProps.option.model?.capabilities?.reasoning" class="badge badge-reasoning" title="Supports reasoning">
-                <i class="pi pi-lightbulb" />
+                <i class="pi pi-lightbulb" ></i>
               </span>
             </div>
           </div>

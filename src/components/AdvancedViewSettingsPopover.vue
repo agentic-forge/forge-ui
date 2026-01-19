@@ -38,32 +38,32 @@ defineExpose({ toggle })
         <label class="setting-item">
           <Checkbox
             :modelValue="advancedViewSettings.showContextSize"
-            @update:modelValue="updateSetting('showContextSize', $event as boolean)"
             :binary="true"
+            @update:modelValue="updateSetting('showContextSize', $event as boolean)"
           />
           <span>Context size</span>
         </label>
         <label class="setting-item">
           <Checkbox
             :modelValue="advancedViewSettings.showTokenUsage"
-            @update:modelValue="updateSetting('showTokenUsage', $event as boolean)"
             :binary="true"
+            @update:modelValue="updateSetting('showTokenUsage', $event as boolean)"
           />
           <span>Token usage</span>
         </label>
         <label class="setting-item">
           <Checkbox
             :modelValue="advancedViewSettings.showThinkingSection"
-            @update:modelValue="updateSetting('showThinkingSection', $event as boolean)"
             :binary="true"
+            @update:modelValue="updateSetting('showThinkingSection', $event as boolean)"
           />
           <span>Thinking section</span>
         </label>
         <label class="setting-item">
           <Checkbox
             :modelValue="advancedViewSettings.showModelName"
-            @update:modelValue="updateSetting('showModelName', $event as boolean)"
             :binary="true"
+            @update:modelValue="updateSetting('showModelName', $event as boolean)"
           />
           <span>Model name</span>
         </label>

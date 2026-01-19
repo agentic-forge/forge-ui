@@ -56,9 +56,23 @@ const formattedArguments = computed(() => {
   return JSON.stringify(props.toolCall.arguments, null, 2)
 })
 
+// Check if result is a string (TOON format) vs object (JSON format)
+const isStringResult = computed(() => {
+  return typeof props.toolCall.result === 'string'
+})
+
 const formattedResult = computed(() => {
   if (props.toolCall.result === undefined) return ''
-  const str = JSON.stringify(props.toolCall.result, null, 2)
+
+  // For string results (TOON format), display as-is with line breaks
+  // For object results (JSON format), pretty-print with indentation
+  let str: string
+  if (isStringResult.value) {
+    str = props.toolCall.result as string
+  } else {
+    str = JSON.stringify(props.toolCall.result, null, 2)
+  }
+
   if (!showFullResult.value && str.length > 500) {
     return str.substring(0, 500) + '...'
   }
@@ -67,7 +81,14 @@ const formattedResult = computed(() => {
 
 const isResultTruncated = computed(() => {
   if (props.toolCall.result === undefined) return false
-  return JSON.stringify(props.toolCall.result, null, 2).length > 500
+
+  let str: string
+  if (isStringResult.value) {
+    str = props.toolCall.result as string
+  } else {
+    str = JSON.stringify(props.toolCall.result, null, 2)
+  }
+  return str.length > 500
 })
 </script>
 
@@ -80,7 +101,7 @@ const isResultTruncated = computed(() => {
     >
       <template #header>
         <div class="tool-header">
-          <i :class="[statusIcon, statusClass]" />
+          <i :class="[statusIcon, statusClass]" ></i>
           <span class="tool-name">{{ displayName }}</span>
           <span v-if="isAdvancedView && toolCall.latency_ms" class="tool-latency text-xs text-muted">
             {{ toolCall.latency_ms }}ms

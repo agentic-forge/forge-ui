@@ -41,7 +41,7 @@ function copyToolSchema(tool: Tool): void {
   <div class="tools-panel">
     <div class="tools-header">
       <span class="tools-title">
-        <i class="pi pi-wrench" />
+        <i class="pi pi-wrench" ></i>
         Available Tools
       </span>
       <div class="tools-actions">
@@ -61,14 +61,14 @@ function copyToolSchema(tool: Tool): void {
     <div class="tools-content">
       <template v-if="!isArmoryConnected">
         <div class="no-tools">
-          <i class="pi pi-exclamation-triangle" style="color: var(--orange-400)" />
+          <i class="pi pi-exclamation-triangle" style="color: var(--orange-400)" ></i>
           <span>Armory not connected</span>
           <span class="text-xs text-muted">Tools are unavailable</span>
         </div>
       </template>
       <template v-else-if="availableTools.length === 0">
         <div class="no-tools">
-          <i class="pi pi-inbox" />
+          <i class="pi pi-inbox" ></i>
           <span>No tools available</span>
           <span class="text-xs text-muted">Click refresh to load tools</span>
         </div>
@@ -80,7 +80,7 @@ function copyToolSchema(tool: Tool): void {
           class="server-group"
         >
           <div class="server-header">
-            <i class="pi pi-server" />
+            <i class="pi pi-server" ></i>
             <span class="server-name">{{ serverName }}</span>
             <span class="server-count text-xs text-muted">{{ tools.length }}</span>
           </div>

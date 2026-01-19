@@ -36,6 +36,11 @@ export interface Message {
   tool_result?: unknown
   is_error?: boolean
   latency_ms?: number
+  result_format?: 'json' | 'toon'
+
+  // For user messages - per-turn settings
+  enable_tools?: boolean
+  use_toon_format?: boolean
 
   // Status
   status: MessageStatus
@@ -57,6 +62,7 @@ export interface ConversationMetadata {
   tools: Tool[]
   total_tokens: number
   message_count: number
+  use_toon_format?: boolean
 }
 
 export interface Conversation {
@@ -164,6 +170,7 @@ export interface AdvancedViewSettings {
   showThinkingSection: boolean
   showModelName: boolean
   enableToolCalling: boolean
+  useToonFormat: boolean
 }
 
 /**

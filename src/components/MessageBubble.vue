@@ -133,9 +133,9 @@ function handleRetry(): void {
     <!-- Thinking section for assistant messages -->
     <div v-if="!isUser && message.thinking && isAdvancedView && advancedViewSettings.showThinkingSection" class="thinking-section">
       <div class="thinking-header" @click="isThinkingExpanded = !isThinkingExpanded">
-        <i class="pi pi-lightbulb" />
+        <i class="pi pi-lightbulb" ></i>
         <span>Thinking</span>
-        <i :class="isThinkingExpanded ? 'pi pi-chevron-up' : 'pi pi-chevron-down'" />
+        <i :class="isThinkingExpanded ? 'pi pi-chevron-up' : 'pi pi-chevron-down'" ></i>
       </div>
       <div v-if="isThinkingExpanded" class="thinking-content text-sm text-muted">
         {{ message.thinking }}
@@ -146,7 +146,7 @@ function handleRetry(): void {
       class="message-content"
       @click="handleContentClick"
       v-html="renderedContent"
-    />
+    ></div>
 
     <div v-if="isAdvancedView && !isUser" class="message-footer">
       <!-- Context progress bar -->

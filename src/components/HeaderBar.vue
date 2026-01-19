@@ -76,7 +76,7 @@ function getConnectionStatus(): 'connected' | 'disconnected' | 'connecting' {
           class="status-dot"
           :class="getConnectionStatus()"
           :title="healthStatus?.armory_connected ? 'Connected to Armory' : 'Armory not connected'"
-        />
+        ></span>
         <span class="status-text text-sm text-muted">
           {{ getConnectionStatus() === 'connected' ? 'Connected' : 'Disconnected' }}
         </span>
@@ -101,8 +101,8 @@ function getConnectionStatus(): 'connected' | 'disconnected' | 'connecting' {
           <span
             class="title-display"
             :class="{ 'has-title': conversation.metadata.title }"
-            @click="startEditingTitle"
             title="Click to edit title"
+            @click="startEditingTitle"
           >
             {{ conversation.metadata.title || 'Untitled Conversation' }}
           </span>

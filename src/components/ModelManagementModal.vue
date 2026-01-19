@@ -252,12 +252,12 @@ onMounted(() => {
           :class="{ active: isViewingFavorites }"
           @click="selectProvider('__favorites__')"
         >
-          <i class="pi pi-star-fill provider-icon favorites" />
+          <i class="pi pi-star-fill provider-icon favorites" ></i>
           <span class="provider-name">Favorites</span>
           <span class="provider-count">{{ allFavorites.length }}</span>
         </div>
 
-        <div class="sidebar-divider" />
+        <div class="sidebar-divider" ></div>
 
         <!-- Real providers -->
         <div
@@ -275,7 +275,7 @@ onMounted(() => {
             :class="[
               provider.configured ? 'pi pi-circle-fill configured' : 'pi pi-circle unconfigured',
             ]"
-          />
+          ></i>
           <span class="provider-name">{{ formatProviderName(provider.id) }}</span>
           <span class="provider-count">{{ provider.model_count }}</span>
         </div>
@@ -290,7 +290,7 @@ onMounted(() => {
           </div>
 
           <div v-if="allFavorites.length === 0" class="empty-state">
-            <i class="pi pi-star" />
+            <i class="pi pi-star" ></i>
             <p>No favorite models yet</p>
             <p class="hint">Click the star icon on any model to add it to favorites</p>
           </div>
@@ -310,13 +310,13 @@ onMounted(() => {
               </div>
               <div class="model-badges">
                 <span v-if="model.capabilities.tools" class="badge badge-tools" title="Tools">
-                  <i class="pi pi-wrench" />
+                  <i class="pi pi-wrench" ></i>
                 </span>
                 <span v-if="model.capabilities.vision" class="badge badge-vision" title="Vision">
-                  <i class="pi pi-eye" />
+                  <i class="pi pi-eye" ></i>
                 </span>
                 <span v-if="model.capabilities.reasoning" class="badge badge-reasoning" title="Reasoning">
-                  <i class="pi pi-lightbulb" />
+                  <i class="pi pi-lightbulb" ></i>
                 </span>
               </div>
               <div class="model-actions">
@@ -359,7 +359,7 @@ onMounted(() => {
 
           <!-- Not configured message -->
           <div v-if="!currentProvider.configured" class="empty-state">
-            <i class="pi pi-key" />
+            <i class="pi pi-key" ></i>
             <p>Provider not configured</p>
             <p class="hint">Add {{ currentProvider.id.toUpperCase() }}_API_KEY to your .env file</p>
           </div>
@@ -384,13 +384,13 @@ onMounted(() => {
                   </div>
                   <div class="model-badges">
                     <span v-if="model.capabilities.tools" class="badge badge-tools" title="Tools">
-                      <i class="pi pi-wrench" />
+                      <i class="pi pi-wrench" ></i>
                     </span>
                     <span v-if="model.capabilities.vision" class="badge badge-vision" title="Vision">
-                      <i class="pi pi-eye" />
+                      <i class="pi pi-eye" ></i>
                     </span>
                     <span v-if="model.capabilities.reasoning" class="badge badge-reasoning" title="Reasoning">
-                      <i class="pi pi-lightbulb" />
+                      <i class="pi pi-lightbulb" ></i>
                     </span>
                   </div>
                   <div class="model-actions">
@@ -453,7 +453,7 @@ onMounted(() => {
               v-if="currentModels.chat.length === 0 && currentModels.embedding.length === 0"
               class="empty-state"
             >
-              <i class="pi pi-box" />
+              <i class="pi pi-box" ></i>
               <p>No models configured</p>
               <p class="hint">
                 <template v-if="currentProvider.has_api">
@@ -526,17 +526,17 @@ onMounted(() => {
         <div class="capabilities-checkboxes">
           <label class="checkbox-label">
             <Checkbox v-model="newModelCapabilities.tools" :binary="true" />
-            <i class="pi pi-wrench" />
+            <i class="pi pi-wrench" ></i>
             <span>Tool calling</span>
           </label>
           <label class="checkbox-label">
             <Checkbox v-model="newModelCapabilities.vision" :binary="true" />
-            <i class="pi pi-eye" />
+            <i class="pi pi-eye" ></i>
             <span>Vision</span>
           </label>
           <label class="checkbox-label">
             <Checkbox v-model="newModelCapabilities.reasoning" :binary="true" />
-            <i class="pi pi-lightbulb" />
+            <i class="pi pi-lightbulb" ></i>
             <span>Reasoning</span>
           </label>
         </div>
