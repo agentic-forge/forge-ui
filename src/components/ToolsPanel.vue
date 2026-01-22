@@ -13,8 +13,14 @@ const toolsByServer = computed(() => {
 
   for (const tool of availableTools.value) {
     // Tool names are prefixed with server name, e.g., "weather__get_current_weather"
+    // Special case: search_tools is the RAG meta-tool (no prefix)
     const parts = tool.name.split('__')
-    const serverName = parts.length > 1 ? parts[0] : 'unknown'
+    let serverName: string
+    if (tool.name === 'search_tools') {
+      serverName = 'Tool RAG'
+    } else {
+      serverName = parts.length > 1 ? parts[0] : 'unknown'
+    }
 
     if (!grouped.has(serverName)) {
       grouped.set(serverName, [])

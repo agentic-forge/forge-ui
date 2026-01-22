@@ -41,6 +41,7 @@ export interface Message {
   // For user messages - per-turn settings
   enable_tools?: boolean
   use_toon_format?: boolean
+  use_tool_rag_mode?: boolean
 
   // Status
   status: MessageStatus
@@ -171,6 +172,7 @@ export interface AdvancedViewSettings {
   showModelName: boolean
   enableToolCalling: boolean
   useToonFormat: boolean
+  useToolRag: boolean
 }
 
 /**

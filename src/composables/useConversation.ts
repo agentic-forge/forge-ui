@@ -61,8 +61,42 @@ const DEFAULT_ADVANCED_VIEW_SETTINGS: AdvancedViewSettings = {
   showModelName: true,
   enableToolCalling: true,
   useToonFormat: false,
+  useToolRag: false,
 }
 const advancedViewSettings = ref<AdvancedViewSettings>(loadAdvancedViewSettings())
+
+// System prompt templates based on toggle states
+const SYSTEM_PROMPT_TEMPLATES = {
+  // No tools enabled - basic assistant
+  noTools: `You are a helpful assistant. Answer questions directly and conversationally.
+
+Note: External tools are currently disabled. If the user asks for something that would typically require tools (like checking the weather, searching the web, etc.), let them know that tool access is not available and offer to help in other ways.`,
+
+  // Tools enabled, no RAG - standard tool use
+  toolsOnly: `You are a helpful assistant with access to external tools.
+
+When you need to perform actions like checking weather, searching the web, or other capabilities, use the available tools. Call tools when needed to provide accurate, up-to-date information.
+
+Be concise in your responses and let the tool results speak for themselves.`,
+
+  // Tools enabled with RAG - two-turn discovery flow
+  toolsWithRag: `You are a helpful assistant with access to a dynamic tool discovery system.
+
+## How Tool Discovery Works
+
+Tools are discovered via search and become available in subsequent messages:
+
+1. When you need a capability, call \`search_tools\` with a description of what you need
+2. After searching, briefly confirm what tools you found (e.g., "I found a weather tool. Proceeding to get the weather...")
+3. The discovered tools will be available in your next response - you can then call them directly
+
+**Important:** After calling \`search_tools\`, do NOT attempt to call the discovered tools in the same response. Keep your response brief - just confirm what you found and that you'll proceed.
+
+Only search for tools when you actually need external capabilities. For simple questions or conversations, respond directly.`,
+}
+
+// Track if user has manually modified the system prompt
+const isSystemPromptUserModified = ref(false)
 
 // SSE instance
 const sse = useSSE()
@@ -141,6 +175,9 @@ export interface UseConversationReturn {
   // Advanced view settings
   advancedViewSettings: Ref<AdvancedViewSettings>
 
+  // System prompt state
+  isSystemPromptUserModified: Ref<boolean>
+
   // Computed
   messages: ComputedRef<Message[]>
   isConnected: ComputedRef<boolean>
@@ -185,6 +222,10 @@ export interface UseConversationReturn {
   setProviderEnabled: (providerId: string, enabled: boolean) => Promise<void>
   // Advanced view settings actions
   updateAdvancedViewSettings: (settings: Partial<AdvancedViewSettings>) => void
+  // System prompt actions
+  getDefaultSystemPrompt: () => string
+  resetSystemPromptToDefault: () => void
+  syncSystemPromptWithToggles: () => void
   getContextInfoForMessage: (messageIndex: number) => ContextInfo | null
 }
 
@@ -238,10 +279,24 @@ export function useConversation(): UseConversationReturn {
     }
   }
 
+  // Get the default system prompt based on current toggle states
+  function getDefaultSystemPrompt(): string {
+    if (!advancedViewSettings.value.enableToolCalling) {
+      return SYSTEM_PROMPT_TEMPLATES.noTools
+    }
+    if (advancedViewSettings.value.useToolRag) {
+      return SYSTEM_PROMPT_TEMPLATES.toolsWithRag
+    }
+    return SYSTEM_PROMPT_TEMPLATES.toolsOnly
+  }
+
   // Create conversation locally (no server call)
   async function createConversation(request?: CreateConversationRequest): Promise<void> {
     const now = new Date().toISOString()
     const model = request?.model || preferredModel.value
+
+    // Determine default system prompt based on current toggle states
+    const defaultSystemPrompt = getDefaultSystemPrompt()
 
     conversation.value = {
       version: CONVERSATION_SCHEMA_VERSION,
@@ -251,13 +306,17 @@ export function useConversation(): UseConversationReturn {
         created_at: now,
         updated_at: now,
         model,
-        system_prompt: request?.system_prompt || '',
+        system_prompt: request?.system_prompt ?? defaultSystemPrompt,
         tools: [],
         total_tokens: 0,
         message_count: 0,
       },
       messages: [],
     }
+
+    // Reset user-modified flag (will be set if user explicitly provided a prompt)
+    isSystemPromptUserModified.value = request?.system_prompt !== undefined &&
+      !Object.values(SYSTEM_PROMPT_TEMPLATES).includes(request.system_prompt)
 
     // Update health status and fetch available tools
     await checkHealth()
@@ -282,6 +341,7 @@ export function useConversation(): UseConversationReturn {
     // In advanced mode, respect the settings; in basic mode, use defaults
     const enableTools = isAdvancedView.value ? advancedViewSettings.value.enableToolCalling : true
     const useToonFormat = isAdvancedView.value ? advancedViewSettings.value.useToonFormat : false
+    const useToolRag = isAdvancedView.value ? advancedViewSettings.value.useToolRag : false
 
     // Add user message to local state with per-turn settings
     const userMessage: Message = {
@@ -292,6 +352,7 @@ export function useConversation(): UseConversationReturn {
       status: 'complete',
       enable_tools: enableTools,
       use_toon_format: useToonFormat,
+      use_tool_rag_mode: useToolRag,
     }
     conversation.value.messages.push(userMessage)
     conversation.value.metadata.message_count = conversation.value.messages.length
@@ -323,6 +384,7 @@ export function useConversation(): UseConversationReturn {
       model: model || conversation.value.metadata.model || null,
       enable_tools: enableTools,
       use_toon_format: useToonFormat,
+      use_tool_rag_mode: useToolRag,
     }
 
     // Connect to SSE via POST (fire and forget - handlers will be called)
@@ -485,11 +547,41 @@ export function useConversation(): UseConversationReturn {
     conversation.value.metadata.updated_at = new Date().toISOString()
   }
 
-  // Update system prompt (local operation)
+  // Check if the current system prompt matches a default template
+  function isSystemPromptDefault(): boolean {
+    if (!conversation.value) return true
+    const currentPrompt = conversation.value.metadata.system_prompt
+    return Object.values(SYSTEM_PROMPT_TEMPLATES).includes(currentPrompt)
+  }
+
+  // Update system prompt (local operation) - marks as user-modified if different from defaults
   async function updateSystemPrompt(content: string): Promise<void> {
     if (!conversation.value) return
 
     conversation.value.metadata.system_prompt = content
+    conversation.value.metadata.updated_at = new Date().toISOString()
+
+    // Track if user modified the prompt to something other than a default
+    isSystemPromptUserModified.value = !Object.values(SYSTEM_PROMPT_TEMPLATES).includes(content)
+  }
+
+  // Reset system prompt to the default based on current toggles
+  function resetSystemPromptToDefault(): void {
+    if (!conversation.value) return
+
+    const defaultPrompt = getDefaultSystemPrompt()
+    conversation.value.metadata.system_prompt = defaultPrompt
+    conversation.value.metadata.updated_at = new Date().toISOString()
+    isSystemPromptUserModified.value = false
+  }
+
+  // Sync system prompt with toggle changes (only if not user-modified)
+  function syncSystemPromptWithToggles(): void {
+    if (!conversation.value) return
+    if (isSystemPromptUserModified.value) return
+
+    const defaultPrompt = getDefaultSystemPrompt()
+    conversation.value.metadata.system_prompt = defaultPrompt
     conversation.value.metadata.updated_at = new Date().toISOString()
   }
 
@@ -509,8 +601,11 @@ export function useConversation(): UseConversationReturn {
     conversation.value.metadata.updated_at = new Date().toISOString()
   }
 
-  async function fetchTools(): Promise<void> {
-    const response = await fetch(`${API_URL}/tools`)
+  async function fetchTools(useRagMode?: boolean): Promise<void> {
+    // Use RAG mode from settings if not explicitly provided
+    const ragMode = useRagMode ?? (isAdvancedView.value && advancedViewSettings.value.useToolRag)
+    const url = ragMode ? `${API_URL}/tools?mode=rag` : `${API_URL}/tools`
+    const response = await fetch(url)
 
     if (!response.ok) {
       throw new Error(`Failed to fetch tools: ${response.statusText}`)
@@ -527,7 +622,7 @@ export function useConversation(): UseConversationReturn {
       throw new Error(`Failed to refresh tools: ${response.statusText}`)
     }
 
-    // After refresh, fetch the updated tools
+    // After refresh, fetch the updated tools with current RAG mode
     await fetchTools()
   }
 
@@ -871,6 +966,9 @@ export function useConversation(): UseConversationReturn {
     // Advanced view settings
     advancedViewSettings,
 
+    // System prompt state
+    isSystemPromptUserModified,
+
     // Computed
     messages,
     isConnected,
@@ -910,6 +1008,10 @@ export function useConversation(): UseConversationReturn {
     setProviderEnabled,
     // Advanced view settings actions
     updateAdvancedViewSettings,
+    // System prompt actions
+    getDefaultSystemPrompt,
+    resetSystemPromptToDefault,
+    syncSystemPromptWithToggles,
     getContextInfoForMessage,
   }
 }

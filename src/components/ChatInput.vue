@@ -13,14 +13,33 @@ const {
   sendMessage,
   cancelGeneration,
   saveDraft,
+  fetchTools,
+  syncSystemPromptWithToggles,
 } = useConversation()
 
 function toggleToolCalling(): void {
-  updateAdvancedViewSettings({ enableToolCalling: !advancedViewSettings.value.enableToolCalling })
+  const newValue = !advancedViewSettings.value.enableToolCalling
+  updateAdvancedViewSettings({ enableToolCalling: newValue })
+  // If disabling tools, also disable RAG and refetch normal tools list
+  if (!newValue && advancedViewSettings.value.useToolRag) {
+    updateAdvancedViewSettings({ useToolRag: false })
+    fetchTools(false)
+  }
+  // Sync system prompt with new toggle state
+  syncSystemPromptWithToggles()
 }
 
 function toggleToonFormat(): void {
   updateAdvancedViewSettings({ useToonFormat: !advancedViewSettings.value.useToonFormat })
+}
+
+async function toggleToolRag(): Promise<void> {
+  const newValue = !advancedViewSettings.value.useToolRag
+  updateAdvancedViewSettings({ useToolRag: newValue })
+  // Refetch tools with the new RAG mode
+  await fetchTools(newValue)
+  // Sync system prompt with new toggle state
+  syncSystemPromptWithToggles()
 }
 
 const inputText = ref(messageDraft.value)
@@ -108,6 +127,18 @@ onUnmounted(() => {
         <span class="toon-status-dot" ></span>
         <i class="pi pi-bolt" ></i>
         <span class="toon-label">TOON</span>
+      </button>
+      <button
+        v-if="advancedViewSettings.enableToolCalling"
+        type="button"
+        class="rag-toggle"
+        :class="{ 'rag-enabled': advancedViewSettings.useToolRag }"
+        :title="advancedViewSettings.useToolRag ? 'Tool RAG enabled - semantic tool search (reduces context usage)' : 'Tool RAG disabled - click to enable semantic tool search'"
+        @click="toggleToolRag"
+      >
+        <span class="rag-status-dot" ></span>
+        <i class="pi pi-search" ></i>
+        <span class="rag-label">RAG</span>
       </button>
     </div>
     <div class="input-wrapper">
@@ -323,6 +354,59 @@ onUnmounted(() => {
 }
 
 .toon-label {
+  line-height: 1;
+}
+
+/* RAG Toggle - similar to toon toggle but with blue accent */
+.rag-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.25rem 0.625rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--p-text-muted-color);
+  background: transparent;
+  border: 1px solid var(--p-content-border-color);
+  border-radius: 1rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: inherit;
+}
+
+.rag-toggle:hover {
+  background: var(--p-content-hover-background);
+  border-color: var(--p-text-muted-color);
+}
+
+.rag-toggle.rag-enabled {
+  color: var(--p-text-color);
+  border-color: var(--p-blue-500);
+  background: color-mix(in srgb, var(--p-blue-500) 10%, transparent);
+}
+
+.rag-toggle.rag-enabled:hover {
+  background: color-mix(in srgb, var(--p-blue-500) 15%, transparent);
+}
+
+.rag-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--p-text-muted-color);
+  transition: all 0.2s ease;
+}
+
+.rag-toggle.rag-enabled .rag-status-dot {
+  background: var(--p-blue-500);
+  box-shadow: 0 0 4px var(--p-blue-500);
+}
+
+.rag-toggle i {
+  font-size: 0.75rem;
+}
+
+.rag-label {
   line-height: 1;
 }
 </style>
