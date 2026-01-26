@@ -39,11 +39,8 @@ const {
   llmKey,
   llmProvider,
   persistKeys,
-  serverProviders,
   allowByok,
-  isUsingByok,
   setLlmKey,
-  setLlmProvider,
   setPersistence,
   serverHasKey,
 } = useKeys()
@@ -448,7 +445,7 @@ onMounted(() => {
             <div class="header-actions">
               <Button
                 v-if="currentProvider.has_api"
-                icon="pi pi-refresh"
+                icon="pi pi-sync"
                 label="Fetch"
                 severity="secondary"
                 size="small"

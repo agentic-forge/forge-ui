@@ -25,6 +25,7 @@ import { CONVERSATION_SCHEMA_VERSION } from '@/types'
 import { useSSE, type SSEConnectionStatus } from './useSSE'
 import { useKeys } from './useKeys'
 import { useSettings } from './useSettings'
+import { useServers } from './useServers'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001'
 const DEFAULT_MODEL = 'anthropic/claude-sonnet-4'
@@ -195,7 +196,7 @@ export interface UseConversationReturn {
   updateSystemPrompt: (content: string) => Promise<void>
   updateTitle: (title: string) => void
   updateModel: (model: string) => Promise<void>
-  fetchTools: () => Promise<void>
+  fetchTools: (useRagMode?: boolean) => Promise<void>
   refreshTools: () => Promise<void>
   checkHealth: () => Promise<void>
   fetchConfig: () => Promise<void>
@@ -384,10 +385,13 @@ export function useConversation(): UseConversationReturn {
     const keys = useKeys()
     const settings = useSettings()
 
+    // Get custom MCP servers
+    const { serversForRequest } = useServers()
+
     // Determine model: explicit > settings > conversation > default
     const requestModel = model || settings.selectedModel.value || conversation.value.metadata.model || null
 
-    const requestBody = {
+    const requestBody: Record<string, unknown> = {
       user_message: content,
       messages: messageHistory,
       system_prompt: conversation.value.metadata.system_prompt || null,
@@ -396,6 +400,11 @@ export function useConversation(): UseConversationReturn {
       enable_tools: enableTools,
       use_toon_format: useToonFormat,
       use_tool_rag_mode: useToolRag,
+    }
+
+    // Add custom MCP servers if any are enabled
+    if (serversForRequest.value.length > 0) {
+      requestBody.extra_mcp_servers = serversForRequest.value
     }
 
     // Get BYOK headers (X-LLM-Key, X-LLM-Provider, X-MCP-Keys)
@@ -559,13 +568,6 @@ export function useConversation(): UseConversationReturn {
     conversation.value.messages = conversation.value.messages.slice(0, index)
     conversation.value.metadata.message_count = conversation.value.messages.length
     conversation.value.metadata.updated_at = new Date().toISOString()
-  }
-
-  // Check if the current system prompt matches a default template
-  function isSystemPromptDefault(): boolean {
-    if (!conversation.value) return true
-    const currentPrompt = conversation.value.metadata.system_prompt
-    return Object.values(SYSTEM_PROMPT_TEMPLATES).includes(currentPrompt)
   }
 
   // Update system prompt (local operation) - marks as user-modified if different from defaults

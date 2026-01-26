@@ -1,40 +1,105 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import Button from 'primevue/button'
 import type { Tool } from '@/types'
 import { useConversation } from '@/composables/useConversation'
+import { useServers } from '@/composables/useServers'
+import ServersPanel from './ServersPanel.vue'
 
 const { availableTools, refreshTools, healthStatus } = useConversation()
+const { customServerTools } = useServers()
+
+// Collapsible state for servers section
+const showServersSection = ref(true)
+
+// Track collapsed server groups
+const collapsedServers = ref<Set<string>>(new Set())
 
 const isArmoryConnected = computed(() => healthStatus.value?.armory_connected ?? false)
 
+// Merge Armory tools with custom server tools
+const allTools = computed<Tool[]>(() => {
+  return [...availableTools.value, ...customServerTools.value]
+})
+
+interface ParsedToolServer {
+  server: string
+  name: string
+  isCustom: boolean
+}
+
+/**
+ * Parse tool name to extract server and display name.
+ * Handles both formats:
+ * - Custom: _serverName__toolName (starts with underscore)
+ * - Armory: serverName__toolName (no leading underscore)
+ */
+function parseToolServer(toolName: string): ParsedToolServer {
+  // Check for custom server prefix (_serverName__toolName)
+  if (toolName.startsWith('_') && toolName.includes('__')) {
+    const withoutPrefix = toolName.substring(1) // Remove leading underscore
+    const [server, ...rest] = withoutPrefix.split('__')
+    return { server, name: rest.join('__'), isCustom: true }
+  }
+
+  // Check for Armory prefix (serverName__toolName)
+  if (toolName.includes('__')) {
+    const [server, ...rest] = toolName.split('__')
+    return { server, name: rest.join('__'), isCustom: false }
+  }
+
+  // Special case: search_tools is the RAG meta-tool
+  if (toolName === 'search_tools') {
+    return { server: 'Tool RAG', name: toolName, isCustom: false }
+  }
+
+  // Unknown format
+  return { server: 'other', name: toolName, isCustom: false }
+}
+
+interface ServerGroup {
+  name: string
+  isCustom: boolean
+  tools: Tool[]
+}
+
 const toolsByServer = computed(() => {
-  const grouped = new Map<string, Tool[]>()
+  const grouped = new Map<string, ServerGroup>()
 
-  for (const tool of availableTools.value) {
-    // Tool names are prefixed with server name, e.g., "weather__get_current_weather"
-    // Special case: search_tools is the RAG meta-tool (no prefix)
-    const parts = tool.name.split('__')
-    let serverName: string
-    if (tool.name === 'search_tools') {
-      serverName = 'Tool RAG'
-    } else {
-      serverName = parts.length > 1 ? parts[0] : 'unknown'
-    }
+  for (const tool of allTools.value) {
+    const parsed = parseToolServer(tool.name)
+    const key = `${parsed.isCustom ? '@' : ''}${parsed.server}`
 
-    if (!grouped.has(serverName)) {
-      grouped.set(serverName, [])
+    if (!grouped.has(key)) {
+      grouped.set(key, {
+        name: parsed.server,
+        isCustom: parsed.isCustom,
+        tools: [],
+      })
     }
-    grouped.get(serverName)!.push(tool)
+    grouped.get(key)!.tools.push(tool)
   }
 
   return grouped
 })
 
+function toggleServerGroup(serverKey: string): void {
+  if (collapsedServers.value.has(serverKey)) {
+    collapsedServers.value.delete(serverKey)
+  } else {
+    collapsedServers.value.add(serverKey)
+  }
+  // Trigger reactivity
+  collapsedServers.value = new Set(collapsedServers.value)
+}
+
+function isServerCollapsed(serverKey: string): boolean {
+  return collapsedServers.value.has(serverKey)
+}
+
 function getToolDisplayName(tool: Tool): string {
-  // Remove server prefix from tool name
-  const parts = tool.name.split('__')
-  return parts.length > 1 ? parts.slice(1).join('__') : tool.name
+  const parsed = parseToolServer(tool.name)
+  return parsed.name
 }
 
 function copyToolSchema(tool: Tool): void {
@@ -45,6 +110,19 @@ function copyToolSchema(tool: Tool): void {
 
 <template>
   <div class="tools-panel">
+    <!-- Custom MCP Servers Section -->
+    <div class="servers-section">
+      <div
+        class="section-toggle"
+        @click="showServersSection = !showServersSection"
+      >
+        <i class="pi" :class="showServersSection ? 'pi-chevron-down' : 'pi-chevron-right'"></i>
+        <span>Custom Servers</span>
+      </div>
+      <ServersPanel v-if="showServersSection" />
+    </div>
+
+    <!-- Tools Section -->
     <div class="tools-header">
       <span class="tools-title">
         <i class="pi pi-wrench" ></i>
@@ -52,7 +130,7 @@ function copyToolSchema(tool: Tool): void {
       </span>
       <div class="tools-actions">
         <span class="tool-count text-xs text-muted">
-          {{ availableTools.length }} tools
+          {{ allTools.length }} tools
         </span>
         <Button
           icon="pi pi-refresh"
@@ -72,7 +150,7 @@ function copyToolSchema(tool: Tool): void {
           <span class="text-xs text-muted">Tools are unavailable</span>
         </div>
       </template>
-      <template v-else-if="availableTools.length === 0">
+      <template v-else-if="allTools.length === 0">
         <div class="no-tools">
           <i class="pi pi-inbox" ></i>
           <span>No tools available</span>
@@ -81,18 +159,27 @@ function copyToolSchema(tool: Tool): void {
       </template>
       <template v-else>
         <div
-          v-for="[serverName, tools] in toolsByServer"
-          :key="serverName"
+          v-for="[serverKey, group] in toolsByServer"
+          :key="serverKey"
           class="server-group"
+          :class="{ 'custom-server': group.isCustom }"
         >
-          <div class="server-header">
-            <i class="pi pi-server" ></i>
-            <span class="server-name">{{ serverName }}</span>
-            <span class="server-count text-xs text-muted">{{ tools.length }}</span>
+          <div
+            class="server-header"
+            @click="toggleServerGroup(serverKey)"
+          >
+            <i
+              class="pi collapse-icon"
+              :class="isServerCollapsed(serverKey) ? 'pi-chevron-right' : 'pi-chevron-down'"
+            ></i>
+            <i class="pi" :class="group.isCustom ? 'pi-user' : 'pi-server'"></i>
+            <span class="server-name">{{ group.name }}</span>
+            <span v-if="group.isCustom" class="custom-tag">Custom</span>
+            <span class="server-count text-xs text-muted">{{ group.tools.length }}</span>
           </div>
-          <div class="server-tools">
+          <div v-if="!isServerCollapsed(serverKey)" class="server-tools">
             <div
-              v-for="tool in tools"
+              v-for="tool in group.tools"
               :key="tool.name"
               class="tool-item"
             >
@@ -138,6 +225,31 @@ function copyToolSchema(tool: Tool): void {
   display: flex;
   flex-direction: column;
   color: var(--p-surface-100);
+  overflow-y: auto;
+}
+
+.servers-section {
+  border-bottom: 1px solid var(--p-surface-700);
+}
+
+.section-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  font-size: 0.75rem;
+  color: var(--p-surface-400);
+  cursor: pointer;
+  user-select: none;
+}
+
+.section-toggle:hover {
+  color: var(--p-surface-200);
+  background: var(--p-surface-800);
+}
+
+.section-toggle i {
+  font-size: 0.625rem;
 }
 
 .tools-header {
@@ -181,6 +293,17 @@ function copyToolSchema(tool: Tool): void {
   background: var(--p-surface-800);
   border-radius: 4px;
   margin-bottom: 0.5rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.server-header:hover {
+  background: var(--p-surface-700);
+}
+
+.collapse-icon {
+  font-size: 0.625rem;
+  color: var(--p-surface-400);
 }
 
 .server-name {
@@ -194,6 +317,24 @@ function copyToolSchema(tool: Tool): void {
   background: rgba(255, 255, 255, 0.1);
   padding: 0.125rem 0.375rem;
   border-radius: 3px;
+}
+
+.custom-tag {
+  font-size: 0.625rem;
+  background: var(--p-cyan-900);
+  color: var(--p-cyan-300);
+  padding: 0.125rem 0.375rem;
+  border-radius: 3px;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.custom-server .server-header {
+  background: color-mix(in srgb, var(--p-cyan-700) 20%, var(--p-surface-800));
+}
+
+.custom-server .tool-item {
+  border-left-color: var(--p-cyan-500);
 }
 
 .server-tools {

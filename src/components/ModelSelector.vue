@@ -278,7 +278,7 @@ onMounted(async () => {
       </Select>
 
       <Button
-        icon="pi pi-refresh"
+        icon="pi pi-sync"
         severity="secondary"
         text
         rounded
