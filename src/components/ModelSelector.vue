@@ -48,13 +48,14 @@ const modelOptions = computed((): ModelOption[] => {
   const addedIds = new Set<string>()
 
   // Helper to create option from model
+  // Use composite value (provider::model.id) to ensure uniqueness across providers
   const createOption = (
     providerId: string,
     model: ModelConfig,
     flags: { isFavorite?: boolean; isRecent?: boolean } = {}
   ): ModelOption => ({
     label: model.display_name,
-    value: model.id,
+    value: `${providerId}::${model.id}`,  // Composite key for uniqueness
     provider: providerId,
     model,
     isFavorite: flags.isFavorite,
@@ -153,15 +154,38 @@ const modelOptions = computed((): ModelOption[] => {
   return options
 })
 
+// Helper to find the composite value for a model ID
+// Searches through options to find the matching provider::model.id format
+function findCompositeValue(modelId: string | undefined): string {
+  if (!modelId) return ''
+  // First try exact match in options
+  const option = modelOptions.value.find((o) => !o.isHeader && o.value.endsWith(`::${modelId}`))
+  if (option) return option.value
+  // Fallback: return the model ID as-is (may not match any option)
+  return modelId
+}
+
 // Use conversation model if available, otherwise use preferred model
-const selectedModel = ref(conversation.value?.metadata?.model || preferredModel.value)
+// Convert to composite format for dropdown matching
+const selectedModel = ref(findCompositeValue(conversation.value?.metadata?.model || preferredModel.value))
 
 // Sync with conversation model when it changes
 watch(
   () => conversation.value?.metadata?.model,
   (newModel) => {
     if (newModel) {
-      selectedModel.value = newModel
+      selectedModel.value = findCompositeValue(newModel)
+    }
+  }
+)
+
+// Also sync when modelOptions change (e.g., after fetch)
+watch(
+  () => modelOptions.value,
+  () => {
+    const currentModelId = conversation.value?.metadata?.model || preferredModel.value
+    if (currentModelId) {
+      selectedModel.value = findCompositeValue(currentModelId)
     }
   }
 )
@@ -179,15 +203,29 @@ function formatProviderName(provider: string): string {
   return names[provider] || provider.charAt(0).toUpperCase() + provider.slice(1)
 }
 
-async function handleModelChange(model: string): Promise<void> {
-  if (!model || model.startsWith('__header_')) return
+async function handleModelChange(compositeValue: string): Promise<void> {
+  if (!compositeValue || compositeValue.startsWith('__header_')) return
 
-  // Always save as preferred model
-  setPreferredModel(model)
+  // Parse composite value (routingProvider::model.id)
+  // routingProvider = where to route the request (openrouter, google, anthropic, etc.)
+  // model.id = the actual model identifier (e.g., google/gemini-3-flash-preview)
+  let modelId = compositeValue
+
+  if (compositeValue.includes('::')) {
+    const parts = compositeValue.split('::')
+    // Note: routingProvider (parts[0]) indicates which provider section the model
+    // was selected from, but we don't automatically change the BYOK provider
+    // because that would overwrite the user's API key settings.
+    // The user should use the BYOK modal to configure their preferred provider.
+    modelId = parts[1]
+  }
+
+  // Always save as preferred model (using the actual model ID, not composite)
+  setPreferredModel(modelId)
 
   // Update conversation model if in a conversation
-  if (conversation.value?.metadata && model !== conversation.value.metadata.model) {
-    await updateModel(model)
+  if (conversation.value?.metadata && modelId !== conversation.value.metadata.model) {
+    await updateModel(modelId)
   }
 }
 
@@ -196,9 +234,14 @@ async function handleRefresh(): Promise<void> {
 }
 
 const displayLabel = computed(() => {
-  // Find the model in options
+  // Find the model in options by composite value
   const option = modelOptions.value.find((o) => o.value === selectedModel.value && !o.isHeader)
-  return option?.label || selectedModel.value
+  if (option) return option.label
+  // Fallback: extract model ID from composite and display it
+  const modelId = selectedModel.value.includes('::')
+    ? selectedModel.value.split('::')[1]
+    : selectedModel.value
+  return modelId || 'Select Model'
 })
 
 function handleManageModels(): void {
