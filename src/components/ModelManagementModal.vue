@@ -4,8 +4,11 @@ import Dialog from 'primevue/dialog'
 import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
 import Checkbox from 'primevue/checkbox'
+import Message from 'primevue/message'
+import Tag from 'primevue/tag'
 import { useToast } from 'primevue/usetoast'
 import { useConversation } from '@/composables/useConversation'
+import { useKeys, PROVIDER_INFO, type LLMProvider } from '@/composables/useKeys'
 import type { ModelConfig, ModelSuggestion, ModelCapabilities } from '@/types'
 
 const props = defineProps<{
@@ -31,6 +34,20 @@ const {
   getProviderSuggestions,
 } = useConversation()
 
+// BYOK state
+const {
+  llmKey,
+  llmProvider,
+  persistKeys,
+  serverProviders,
+  allowByok,
+  isUsingByok,
+  setLlmKey,
+  setLlmProvider,
+  setPersistence,
+  serverHasKey,
+} = useKeys()
+
 // Local state
 const selectedProviderId = ref<string | null>(null)
 const showAddModelDialog = ref(false)
@@ -46,6 +63,46 @@ const newModelCapabilities = ref<ModelCapabilities>({
   reasoning: false,
 })
 
+// BYOK local state
+const localApiKey = ref('')
+const showApiKey = ref(false)
+
+// BYOK providers that support user keys
+const BYOK_PROVIDERS = ['openrouter', 'openai', 'anthropic', 'google']
+
+// Check if current provider supports BYOK
+const isByokProvider = computed(() => {
+  return selectedProviderId.value ? BYOK_PROVIDERS.includes(selectedProviderId.value) : false
+})
+
+// Get BYOK provider info for current provider
+const currentByokInfo = computed(() => {
+  if (!selectedProviderId.value || !isByokProvider.value) return null
+  return PROVIDER_INFO[selectedProviderId.value as LLMProvider]
+})
+
+// Check if current provider has a server key
+const currentProviderHasServerKey = computed(() => {
+  if (!selectedProviderId.value) return false
+  return serverHasKey(selectedProviderId.value as LLMProvider)
+})
+
+// Check if user has set their own key for current provider
+const userHasKeyForProvider = computed(() => {
+  if (!selectedProviderId.value) return false
+  return llmProvider.value === selectedProviderId.value && !!llmKey.value
+})
+
+// Check if user has a BYOK key for a specific provider (for sidebar icons)
+function userHasKeyFor(providerId: string): boolean {
+  return llmProvider.value === providerId && !!llmKey.value
+}
+
+// Check if a provider is ready to use (has server key OR user BYOK key)
+function isProviderReady(provider: { id: string; configured: boolean }): boolean {
+  return provider.configured || userHasKeyFor(provider.id)
+}
+
 // Initialize data when modal opens
 watch(
   () => props.visible,
@@ -55,6 +112,56 @@ watch(
     }
   }
 )
+
+// Sync localApiKey when provider changes or modal opens
+watch(
+  [selectedProviderId, () => props.visible],
+  ([providerId, visible]) => {
+    if (visible && providerId && BYOK_PROVIDERS.includes(providerId)) {
+      // Show existing key if this is the active BYOK provider
+      if (llmProvider.value === providerId && llmKey.value) {
+        localApiKey.value = llmKey.value
+      } else {
+        localApiKey.value = ''
+      }
+    }
+  }
+)
+
+// BYOK handlers
+function applyApiKey(): void {
+  if (!selectedProviderId.value || !localApiKey.value) return
+  setLlmKey(localApiKey.value, selectedProviderId.value as LLMProvider)
+  toast.add({
+    severity: 'success',
+    summary: 'API Key Set',
+    detail: `Using your ${formatProviderName(selectedProviderId.value)} API key`,
+    life: 3000,
+  })
+}
+
+function clearApiKey(): void {
+  localApiKey.value = ''
+  if (selectedProviderId.value === llmProvider.value) {
+    setLlmKey('', llmProvider.value)
+    toast.add({
+      severity: 'info',
+      summary: 'API Key Cleared',
+      detail: 'Reverted to server key (if available)',
+      life: 3000,
+    })
+  }
+}
+
+function handlePersistChange(enabled: boolean): void {
+  setPersistence(enabled)
+  toast.add({
+    severity: enabled ? 'success' : 'info',
+    summary: enabled ? 'Key Saved' : 'Key Not Saved',
+    detail: enabled ? 'Your key will be remembered in this browser' : 'Key will be cleared when you close the browser',
+    life: 3000,
+  })
+}
 
 async function loadData(): Promise<void> {
   try {
@@ -266,14 +373,14 @@ onMounted(() => {
           class="provider-item"
           :class="{
             active: selectedProviderId === provider.id,
-            disabled: !provider.configured,
+            disabled: !provider.configured && !allowByok,
           }"
-          @click="provider.configured && selectProvider(provider.id)"
+          @click="(provider.configured || allowByok) && selectProvider(provider.id)"
         >
           <i
             class="provider-icon"
             :class="[
-              provider.configured ? 'pi pi-circle-fill configured' : 'pi pi-circle unconfigured',
+              isProviderReady(provider) ? 'pi pi-circle-fill configured' : 'pi pi-circle unconfigured',
             ]"
           ></i>
           <span class="provider-name">{{ formatProviderName(provider.id) }}</span>
@@ -357,11 +464,100 @@ onMounted(() => {
             </div>
           </div>
 
-          <!-- Not configured message -->
-          <div v-if="!currentProvider.configured" class="empty-state">
+          <!-- BYOK Section -->
+          <div v-if="isByokProvider && allowByok" class="byok-section">
+            <div class="byok-header">
+              <span class="byok-title">API Key</span>
+              <div class="byok-status">
+                <Tag
+                  v-if="userHasKeyForProvider"
+                  severity="success"
+                  icon="pi pi-check"
+                  value="Your key"
+                />
+                <Tag
+                  v-else-if="currentProviderHasServerKey"
+                  severity="info"
+                  icon="pi pi-server"
+                  value="Server key"
+                />
+                <Tag
+                  v-else
+                  severity="warn"
+                  icon="pi pi-exclamation-triangle"
+                  value="No key"
+                />
+              </div>
+            </div>
+
+            <div class="byok-content">
+              <div class="key-input-row">
+                <InputText
+                  v-model="localApiKey"
+                  :type="showApiKey ? 'text' : 'password'"
+                  :placeholder="currentByokInfo?.placeholder || 'Enter API key...'"
+                  class="key-input"
+                />
+                <Button
+                  :icon="showApiKey ? 'pi pi-eye-slash' : 'pi pi-eye'"
+                  severity="secondary"
+                  text
+                  @click="showApiKey = !showApiKey"
+                  title="Toggle visibility"
+                />
+                <Button
+                  v-if="localApiKey"
+                  icon="pi pi-check"
+                  severity="success"
+                  :disabled="localApiKey === llmKey && llmProvider === selectedProviderId"
+                  @click="applyApiKey"
+                  title="Apply key"
+                />
+                <Button
+                  v-if="userHasKeyForProvider"
+                  icon="pi pi-times"
+                  severity="danger"
+                  text
+                  @click="clearApiKey"
+                  title="Clear key"
+                />
+              </div>
+
+              <div class="byok-footer">
+                <a
+                  v-if="currentByokInfo"
+                  :href="currentByokInfo.keyUrl"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="get-key-link"
+                >
+                  Get {{ currentByokInfo.label }} API key
+                  <i class="pi pi-external-link"></i>
+                </a>
+
+                <label v-if="localApiKey || userHasKeyForProvider" class="persist-checkbox">
+                  <Checkbox
+                    :modelValue="persistKeys"
+                    :binary="true"
+                    @update:modelValue="handlePersistChange"
+                  />
+                  <span>Remember key</span>
+                </label>
+              </div>
+
+              <Message v-if="persistKeys && userHasKeyForProvider" severity="info" :closable="false" class="persist-note">
+                <i class="pi pi-lock"></i>
+                Key saved in browser only, never sent to our servers for storage.
+              </Message>
+            </div>
+          </div>
+
+          <!-- Not configured message (only show if no server key AND no user key) -->
+          <div v-if="!currentProvider.configured && !userHasKeyForProvider" class="empty-state">
             <i class="pi pi-key" ></i>
             <p>Provider not configured</p>
-            <p class="hint">Add {{ currentProvider.id.toUpperCase() }}_API_KEY to your .env file</p>
+            <p v-if="allowByok" class="hint">Enter your API key above, or add {{ currentProvider.id.toUpperCase() }}_API_KEY to server .env</p>
+            <p v-else class="hint">Add {{ currentProvider.id.toUpperCase() }}_API_KEY to your .env file</p>
           </div>
 
           <!-- Models list -->
@@ -850,5 +1046,90 @@ onMounted(() => {
 
 .w-full {
   width: 100%;
+}
+
+/* BYOK Section */
+.byok-section {
+  background: var(--p-surface-ground);
+  border-radius: var(--p-border-radius);
+  padding: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.byok-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.byok-title {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--p-text-muted-color);
+}
+
+.byok-status {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.byok-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.key-input-row {
+  display: flex;
+  gap: 0.25rem;
+  align-items: center;
+}
+
+.key-input {
+  flex: 1;
+  font-family: monospace;
+  font-size: 0.875rem;
+}
+
+.byok-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.get-key-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  color: var(--p-primary-color);
+  text-decoration: none;
+}
+
+.get-key-link:hover {
+  text-decoration: underline;
+}
+
+.persist-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.persist-note {
+  margin: 0;
+  font-size: 0.75rem;
+}
+
+.persist-note :deep(.p-message-text) {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 </style>

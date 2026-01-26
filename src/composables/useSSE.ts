@@ -23,11 +23,15 @@ export interface SSEHandlers {
   onPing?: () => void
 }
 
+export interface ConnectPostOptions {
+  headers?: Record<string, string>
+}
+
 export interface UseSSEReturn {
   status: Ref<SSEConnectionStatus>
   debugEvents: Ref<DebugEvent[]>
   connect: (url: string, handlers: SSEHandlers) => void
-  connectPost: (url: string, body: unknown, handlers: SSEHandlers) => void
+  connectPost: (url: string, body: unknown, handlers: SSEHandlers, options?: ConnectPostOptions) => void
   disconnect: () => void
   clearDebugEvents: () => void
 }
@@ -221,7 +225,12 @@ export function useSSE(): UseSSEReturn {
   }
 
   // Connect via POST request with streaming response
-  async function connectPost(url: string, body: unknown, handlers: SSEHandlers): Promise<void> {
+  async function connectPost(
+    url: string,
+    body: unknown,
+    handlers: SSEHandlers,
+    options?: ConnectPostOptions
+  ): Promise<void> {
     // Disconnect existing connection
     disconnect()
 
@@ -234,6 +243,8 @@ export function useSSE(): UseSSEReturn {
         headers: {
           'Content-Type': 'application/json',
           Accept: 'text/event-stream',
+          // Merge custom headers (for BYOK support)
+          ...options?.headers,
         },
         body: JSON.stringify(body),
         signal: abortController.signal,

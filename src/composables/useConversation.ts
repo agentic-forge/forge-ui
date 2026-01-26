@@ -23,6 +23,8 @@ import type {
 } from '@/types'
 import { CONVERSATION_SCHEMA_VERSION } from '@/types'
 import { useSSE, type SSEConnectionStatus } from './useSSE'
+import { useKeys } from './useKeys'
+import { useSettings } from './useSettings'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001'
 const DEFAULT_MODEL = 'anthropic/claude-sonnet-4'
@@ -196,6 +198,7 @@ export interface UseConversationReturn {
   fetchTools: () => Promise<void>
   refreshTools: () => Promise<void>
   checkHealth: () => Promise<void>
+  fetchConfig: () => Promise<void>
   toggleAdvancedView: () => void
   toggleDebugPanel: () => void
   toggleToolsPanel: () => void
@@ -377,15 +380,26 @@ export function useConversation(): UseConversationReturn {
       conversation.value.metadata.use_toon_format = true
     }
 
+    // Get BYOK keys and settings for this request
+    const keys = useKeys()
+    const settings = useSettings()
+
+    // Determine model: explicit > settings > conversation > default
+    const requestModel = model || settings.selectedModel.value || conversation.value.metadata.model || null
+
     const requestBody = {
       user_message: content,
       messages: messageHistory,
       system_prompt: conversation.value.metadata.system_prompt || null,
-      model: model || conversation.value.metadata.model || null,
+      model: requestModel,
+      provider: keys.llmProvider.value,
       enable_tools: enableTools,
       use_toon_format: useToonFormat,
       use_tool_rag_mode: useToolRag,
     }
+
+    // Get BYOK headers (X-LLM-Key, X-LLM-Provider, X-MCP-Keys)
+    const byokHeaders = keys.getHeaders()
 
     // Connect to SSE via POST (fire and forget - handlers will be called)
     sse.connectPost(`${API_URL}/chat/stream`, requestBody, {
@@ -499,7 +513,7 @@ export function useConversation(): UseConversationReturn {
       onPing: () => {
         // Keep-alive, nothing to do
       },
-    })
+    }, { headers: byokHeaders })
   }
 
   // Cancel generation (just disconnect SSE - backend is stateless)
@@ -816,6 +830,24 @@ export function useConversation(): UseConversationReturn {
     await fetchProviders()
   }
 
+  /**
+   * Fetch server configuration (available providers, BYOK status).
+   * Updates the keys composable with server provider info.
+   */
+  async function fetchConfig(): Promise<void> {
+    try {
+      const response = await fetch(`${API_URL}/config`)
+      if (response.ok) {
+        const data = await response.json()
+        // Update keys composable with server config
+        const keys = useKeys()
+        keys.setServerConfig(data.server_providers || {}, data.allow_byok ?? true)
+      }
+    } catch (e) {
+      console.warn('Failed to fetch config:', e)
+    }
+  }
+
   async function checkHealth(): Promise<void> {
     try {
       const response = await fetch(`${API_URL}/health`)
@@ -828,6 +860,8 @@ export function useConversation(): UseConversationReturn {
           armory_connected: data.armory_available ?? data.armory_connected ?? false,
           active_runs: data.active_runs ?? 0,
         }
+        // Also fetch config when checking health
+        await fetchConfig()
       } else {
         healthStatus.value = null
       }
@@ -987,6 +1021,7 @@ export function useConversation(): UseConversationReturn {
     fetchTools,
     refreshTools,
     checkHealth,
+    fetchConfig,
     toggleAdvancedView,
     toggleDebugPanel,
     toggleToolsPanel,

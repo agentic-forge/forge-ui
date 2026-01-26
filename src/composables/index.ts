@@ -1,3 +1,5 @@
 export { useTheme } from './useTheme'
 export { useSSE } from './useSSE'
 export { useConversation } from './useConversation'
+export { useKeys, PROVIDER_INFO, type LLMProvider } from './useKeys'
+export { useSettings, type ProviderModel } from './useSettings'
