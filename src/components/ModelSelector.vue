@@ -206,26 +206,15 @@ function formatProviderName(provider: string): string {
 async function handleModelChange(compositeValue: string): Promise<void> {
   if (!compositeValue || compositeValue.startsWith('__header_')) return
 
-  // Parse composite value (routingProvider::model.id)
-  // routingProvider = where to route the request (openrouter, google, anthropic, etc.)
-  // model.id = the actual model identifier (e.g., google/gemini-3-flash-preview)
-  let modelId = compositeValue
-
-  if (compositeValue.includes('::')) {
-    const parts = compositeValue.split('::')
-    // Note: routingProvider (parts[0]) indicates which provider section the model
-    // was selected from, but we don't automatically change the BYOK provider
-    // because that would overwrite the user's API key settings.
-    // The user should use the BYOK modal to configure their preferred provider.
-    modelId = parts[1]
-  }
-
-  // Always save as preferred model (using the actual model ID, not composite)
-  setPreferredModel(modelId)
+  // Save the full composite value (provider::model.id) to preserve routing information
+  // This allows the system to know which provider to route requests to
+  // e.g., "openrouter::google/gemini-3-flash-preview" routes to OpenRouter
+  // e.g., "google::gemini-2.0-flash" routes directly to Google
+  setPreferredModel(compositeValue)
 
   // Update conversation model if in a conversation
-  if (conversation.value?.metadata && modelId !== conversation.value.metadata.model) {
-    await updateModel(modelId)
+  if (conversation.value?.metadata && compositeValue !== conversation.value.metadata.model) {
+    await updateModel(compositeValue)
   }
 }
 

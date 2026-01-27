@@ -391,12 +391,41 @@ export function useConversation(): UseConversationReturn {
     // Determine model: explicit > settings > conversation > default
     const requestModel = model || settings.selectedModel.value || conversation.value.metadata.model || null
 
+    // Determine provider from model format:
+    // - "provider::model_id" format: extract provider from prefix
+    // - "provider/model" format (OpenRouter): use "openrouter"
+    // - Other formats: use "openrouter" as default (safest)
+    let modelProvider: 'openrouter' | 'openai' | 'anthropic' | 'google' = 'openrouter'
+    if (requestModel) {
+      if (requestModel.includes('::')) {
+        // Explicit provider prefix: "openrouter::google/gemini-3-flash"
+        const providerPart = requestModel.split('::')[0]
+        if (['openrouter', 'openai', 'anthropic', 'google'].includes(providerPart)) {
+          modelProvider = providerPart as 'openrouter' | 'openai' | 'anthropic' | 'google'
+        }
+      } else if (requestModel.includes('/')) {
+        // OpenRouter format: "google/gemini-3-flash" -> route to openrouter
+        modelProvider = 'openrouter'
+      } else {
+        // Native format without prefix: detect from model name
+        const modelLower = requestModel.toLowerCase()
+        if (modelLower.startsWith('gpt-') || modelLower.startsWith('o1') || modelLower.startsWith('o3')) {
+          modelProvider = 'openai'
+        } else if (modelLower.startsWith('claude')) {
+          modelProvider = 'anthropic'
+        } else if (modelLower.startsWith('gemini')) {
+          modelProvider = 'google'
+        }
+        // else: keep default 'openrouter'
+      }
+    }
+
     const requestBody: Record<string, unknown> = {
       user_message: content,
       messages: messageHistory,
       system_prompt: conversation.value.metadata.system_prompt || null,
       model: requestModel,
-      provider: keys.llmProvider.value,
+      provider: modelProvider,
       enable_tools: enableTools,
       use_toon_format: useToonFormat,
       use_tool_rag_mode: useToolRag,
@@ -407,8 +436,8 @@ export function useConversation(): UseConversationReturn {
       requestBody.extra_mcp_servers = serversForRequest.value
     }
 
-    // Get BYOK headers (X-LLM-Key, X-LLM-Provider, X-MCP-Keys)
-    const byokHeaders = keys.getHeaders()
+    // Get BYOK headers for the correct provider (based on selected model)
+    const byokHeaders = keys.getHeaders(modelProvider)
 
     // Connect to SSE via POST (fire and forget - handlers will be called)
     sse.connectPost(`${API_URL}/chat/stream`, requestBody, {
@@ -783,9 +812,19 @@ export function useConversation(): UseConversationReturn {
   async function fetchModelsFromProvider(providerId: string): Promise<FetchModelsResponse> {
     isLoadingModels.value = true
     try {
+      // Get BYOK headers for the specific provider being fetched
+      const keys = useKeys()
+      const providerForHeaders = ['openrouter', 'openai', 'anthropic', 'google'].includes(providerId)
+        ? (providerId as 'openrouter' | 'openai' | 'anthropic' | 'google')
+        : undefined
+      const byokHeaders = keys.getHeaders(providerForHeaders)
+
       const response = await fetch(`${API_URL}/models/fetch`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...byokHeaders,
+        },
         body: JSON.stringify({ provider: providerId }),
       })
 

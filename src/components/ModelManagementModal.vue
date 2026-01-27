@@ -36,11 +36,12 @@ const {
 
 // BYOK state
 const {
-  llmKey,
-  llmProvider,
   persistKeys,
   allowByok,
   setLlmKey,
+  getLlmKey,
+  clearLlmKey,
+  isUsingByokForProvider,
   setPersistence,
   serverHasKey,
 } = useKeys()
@@ -87,12 +88,13 @@ const currentProviderHasServerKey = computed(() => {
 // Check if user has set their own key for current provider
 const userHasKeyForProvider = computed(() => {
   if (!selectedProviderId.value) return false
-  return llmProvider.value === selectedProviderId.value && !!llmKey.value
+  return isUsingByokForProvider(selectedProviderId.value as LLMProvider)
 })
 
 // Check if user has a BYOK key for a specific provider (for sidebar icons)
 function userHasKeyFor(providerId: string): boolean {
-  return llmProvider.value === providerId && !!llmKey.value
+  if (!BYOK_PROVIDERS.includes(providerId)) return false
+  return isUsingByokForProvider(providerId as LLMProvider)
 }
 
 // Check if a provider is ready to use (has server key OR user BYOK key)
@@ -115,12 +117,9 @@ watch(
   [selectedProviderId, () => props.visible],
   ([providerId, visible]) => {
     if (visible && providerId && BYOK_PROVIDERS.includes(providerId)) {
-      // Show existing key if this is the active BYOK provider
-      if (llmProvider.value === providerId && llmKey.value) {
-        localApiKey.value = llmKey.value
-      } else {
-        localApiKey.value = ''
-      }
+      // Show existing key for this provider (each provider has its own key)
+      const existingKey = getLlmKey(providerId as LLMProvider)
+      localApiKey.value = existingKey || ''
     }
   }
 )
@@ -139,8 +138,8 @@ function applyApiKey(): void {
 
 function clearApiKey(): void {
   localApiKey.value = ''
-  if (selectedProviderId.value === llmProvider.value) {
-    setLlmKey('', llmProvider.value)
+  if (selectedProviderId.value && BYOK_PROVIDERS.includes(selectedProviderId.value)) {
+    clearLlmKey(selectedProviderId.value as LLMProvider)
     toast.add({
       severity: 'info',
       summary: 'API Key Cleared',

@@ -3,6 +3,9 @@
  *
  * Follows the singleton composable pattern - module-level refs maintain
  * global state across all components.
+ *
+ * Supports multiple provider keys simultaneously - each provider can have
+ * its own API key configured.
  */
 
 import { ref, watch, computed } from 'vue'
@@ -12,6 +15,9 @@ const KEYS_STORAGE_KEY = 'forge_keys'
 
 // Supported LLM providers
 export type LLMProvider = 'openrouter' | 'openai' | 'anthropic' | 'google'
+
+// All supported providers
+export const ALL_PROVIDERS: LLMProvider[] = ['openrouter', 'openai', 'anthropic', 'google']
 
 // Provider display info
 export const PROVIDER_INFO: Record<LLMProvider, { label: string; keyUrl: string; placeholder: string }> = {
@@ -38,14 +44,22 @@ export const PROVIDER_INFO: Record<LLMProvider, { label: string; keyUrl: string;
 }
 
 // Module-level state (singleton pattern)
-const llmKey = ref('')
-const llmProvider = ref<LLMProvider>('openrouter')
+// Store keys per provider instead of a single key
+const llmKeys = ref<Record<LLMProvider, string>>({
+  openrouter: '',
+  openai: '',
+  anthropic: '',
+  google: '',
+})
 const mcpKeys = ref<Record<string, string>>({})
 const persistKeys = ref(false)
 
 // Server configuration (from /config endpoint)
 const serverProviders = ref<Record<string, boolean>>({})
 const allowByok = ref(true)
+
+// Legacy: keep track of "active" provider for backward compatibility
+const activeProvider = ref<LLMProvider>('openrouter')
 
 /**
  * Load keys from localStorage if previously saved.
@@ -55,9 +69,23 @@ function loadFromStorage(): void {
     const stored = localStorage.getItem(KEYS_STORAGE_KEY)
     if (stored) {
       const data = JSON.parse(stored)
-      llmKey.value = data.llmKey || ''
-      llmProvider.value = data.llmProvider || 'openrouter'
+
+      // Handle new format (llmKeys object)
+      if (data.llmKeys) {
+        llmKeys.value = {
+          openrouter: data.llmKeys.openrouter || '',
+          openai: data.llmKeys.openai || '',
+          anthropic: data.llmKeys.anthropic || '',
+          google: data.llmKeys.google || '',
+        }
+      }
+      // Handle legacy format (single llmKey + llmProvider)
+      else if (data.llmKey && data.llmProvider) {
+        llmKeys.value[data.llmProvider as LLMProvider] = data.llmKey
+      }
+
       mcpKeys.value = data.mcpKeys || {}
+      activeProvider.value = data.activeProvider || data.llmProvider || 'openrouter'
       persistKeys.value = true // They have saved keys, so persistence is on
     }
   } catch (e) {
@@ -74,9 +102,9 @@ function saveToStorage(): void {
       localStorage.setItem(
         KEYS_STORAGE_KEY,
         JSON.stringify({
-          llmKey: llmKey.value,
-          llmProvider: llmProvider.value,
+          llmKeys: llmKeys.value,
           mcpKeys: mcpKeys.value,
+          activeProvider: activeProvider.value,
         })
       )
     } catch (e) {
@@ -100,7 +128,7 @@ function clearStorage(): void {
 loadFromStorage()
 
 // Watch for changes and auto-save if persistence is enabled
-watch([llmKey, llmProvider, mcpKeys], () => {
+watch([llmKeys, mcpKeys, activeProvider], () => {
   if (persistKeys.value) {
     saveToStorage()
   }
@@ -108,40 +136,56 @@ watch([llmKey, llmProvider, mcpKeys], () => {
 
 export function useKeys() {
   /**
-   * Check if user has an LLM key configured (either their own or server has one).
+   * Check if user has an LLM key configured for a specific provider.
    */
-  const hasLlmKey = computed(() => {
-    // User has their own key
-    if (llmKey.value) return true
-    // Check if server has a key for current provider
-    return serverProviders.value[llmProvider.value] === true
-  })
-
-  /**
-   * Check if user has provided their own key (BYOK mode).
-   */
-  const isUsingByok = computed(() => !!llmKey.value)
-
-  /**
-   * Get the current provider info.
-   */
-  const currentProviderInfo = computed(() => PROVIDER_INFO[llmProvider.value])
-
-  /**
-   * Set LLM key for current session.
-   */
-  function setLlmKey(key: string, provider?: LLMProvider): void {
-    llmKey.value = key
-    if (provider) {
-      llmProvider.value = provider
-    }
+  function hasKeyForProvider(provider: LLMProvider): boolean {
+    // User has their own key for this provider
+    if (llmKeys.value[provider]) return true
+    // Server has a key for this provider
+    return serverProviders.value[provider] === true
   }
 
   /**
-   * Set LLM provider.
+   * Check if user has any LLM key configured.
    */
-  function setLlmProvider(provider: LLMProvider): void {
-    llmProvider.value = provider
+  const hasAnyLlmKey = computed(() => {
+    return ALL_PROVIDERS.some(p => llmKeys.value[p] || serverProviders.value[p])
+  })
+
+  /**
+   * Check if user has provided their own key for a provider (BYOK mode).
+   */
+  function isUsingByokForProvider(provider: LLMProvider): boolean {
+    return !!llmKeys.value[provider]
+  }
+
+  /**
+   * Get all providers that have BYOK keys configured.
+   */
+  const providersWithByok = computed(() => {
+    return ALL_PROVIDERS.filter(p => llmKeys.value[p])
+  })
+
+  /**
+   * Set LLM key for a specific provider.
+   */
+  function setLlmKey(key: string, provider: LLMProvider): void {
+    llmKeys.value = { ...llmKeys.value, [provider]: key }
+    activeProvider.value = provider
+  }
+
+  /**
+   * Get LLM key for a specific provider.
+   */
+  function getLlmKey(provider: LLMProvider): string {
+    return llmKeys.value[provider] || ''
+  }
+
+  /**
+   * Clear LLM key for a specific provider.
+   */
+  function clearLlmKey(provider: LLMProvider): void {
+    llmKeys.value = { ...llmKeys.value, [provider]: '' }
   }
 
   /**
@@ -177,22 +221,44 @@ export function useKeys() {
    * Clear all keys (session and storage).
    */
   function clearKeys(): void {
-    llmKey.value = ''
+    llmKeys.value = {
+      openrouter: '',
+      openai: '',
+      anthropic: '',
+      google: '',
+    }
     mcpKeys.value = {}
     clearStorage()
   }
 
   /**
    * Get headers for API requests (BYOK headers).
-   * Only includes headers if user has provided their own keys.
+   * Uses the key for the specified provider, or falls back to any available key.
+   *
+   * @param provider - The provider to get headers for (usually from model selection)
    */
-  function getHeaders(): Record<string, string> {
+  function getHeaders(provider?: LLMProvider): Record<string, string> {
     const headers: Record<string, string> = {}
 
-    if (llmKey.value) {
-      headers['X-LLM-Key'] = llmKey.value
-      headers['X-LLM-Provider'] = llmProvider.value
+    // Only send BYOK headers if the specified provider has a key configured
+    // Do NOT fall back to a different provider's key - that would cause routing errors
+    if (provider && llmKeys.value[provider]) {
+      headers['X-LLM-Key'] = llmKeys.value[provider]
+      headers['X-LLM-Provider'] = provider
     }
+    // If no provider specified but there's only one BYOK key, use it
+    // (This handles legacy cases where provider wasn't tracked)
+    else if (!provider) {
+      const configuredProviders = ALL_PROVIDERS.filter(p => llmKeys.value[p])
+      if (configuredProviders.length === 1) {
+        const p = configuredProviders[0]
+        headers['X-LLM-Key'] = llmKeys.value[p]
+        headers['X-LLM-Provider'] = p
+      }
+      // If multiple keys or no keys, don't send BYOK headers - let server decide
+    }
+    // If provider specified but no key for it, don't send BYOK headers
+    // Server will use its own keys for that provider
 
     if (Object.keys(mcpKeys.value).length > 0) {
       headers['X-MCP-Keys'] = JSON.stringify(mcpKeys.value)
@@ -216,23 +282,42 @@ export function useKeys() {
     return serverProviders.value[provider] === true
   }
 
+  // Legacy compatibility: expose llmKey and llmProvider as computed
+  // These return the "active" provider's key for backward compatibility
+  const llmKey = computed({
+    get: () => llmKeys.value[activeProvider.value] || '',
+    set: (val: string) => {
+      llmKeys.value = { ...llmKeys.value, [activeProvider.value]: val }
+    }
+  })
+
+  const llmProvider = computed({
+    get: () => activeProvider.value,
+    set: (val: LLMProvider) => {
+      activeProvider.value = val
+    }
+  })
+
   return {
     // State (reactive)
-    llmKey,
-    llmProvider,
+    llmKeys,
+    llmKey, // Legacy: computed for active provider
+    llmProvider, // Legacy: computed for active provider
     mcpKeys,
     persistKeys,
     serverProviders,
     allowByok,
 
     // Computed
-    hasLlmKey,
-    isUsingByok,
-    currentProviderInfo,
+    hasAnyLlmKey,
+    providersWithByok,
 
     // Methods
     setLlmKey,
-    setLlmProvider,
+    getLlmKey,
+    clearLlmKey,
+    hasKeyForProvider,
+    isUsingByokForProvider,
     setPersistence,
     setMcpKey,
     removeMcpKey,
