@@ -24,6 +24,7 @@ export interface UiMetadata {
   resourceUri: string
   csp?: string
   permissions?: string[]
+  requiresInteraction?: boolean
 }
 
 export interface ToolResultEvent {
@@ -42,6 +43,8 @@ export interface TokenUsage {
 export interface CompleteEvent {
   response: string
   usage?: TokenUsage
+  awaiting_interaction?: boolean
+  interactive_tool_call_id?: string
 }
 
 export interface ErrorEvent {

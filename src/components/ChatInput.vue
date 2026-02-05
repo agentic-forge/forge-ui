@@ -15,6 +15,7 @@ const {
   saveDraft,
   fetchTools,
   syncSystemPromptWithToggles,
+  awaitingInteraction,
 } = useConversation()
 
 function toggleToolCalling(): void {
@@ -76,7 +77,7 @@ watch(isStreaming, (streaming) => {
 
 function handleSend(): void {
   const content = inputText.value.trim()
-  if (!content || isStreaming.value) return
+  if (!content || isStreaming.value || awaitingInteraction.value) return
 
   sendMessage(content)
   inputText.value = ''
@@ -145,8 +146,8 @@ onUnmounted(() => {
       <Textarea
         ref="textareaRef"
         v-model="inputText"
-        placeholder="Type a message..."
-        :disabled="isStreaming"
+        :placeholder="awaitingInteraction ? 'Interact with the tool above, then click Continue' : 'Type a message...'"
+        :disabled="isStreaming || awaitingInteraction"
         autoResize
         rows="1"
         class="message-input"

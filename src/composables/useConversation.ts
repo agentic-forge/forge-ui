@@ -27,7 +27,8 @@ import { useKeys } from './useKeys'
 import { useSettings } from './useSettings'
 import { useServers } from './useServers'
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001'
+// Use ?? (nullish coalescing) so empty string works for production (relative URLs)
+const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8001'
 const DEFAULT_MODEL = 'anthropic/claude-sonnet-4'
 
 // Global state (singleton pattern)
@@ -47,6 +48,10 @@ const availableModels = ref<ModelInfo[]>([])
 const availableProviders = ref<string[]>([])
 const modelsCachedAt = ref<string | null>(null)
 const isLoadingModels = ref(false)
+
+// Interactive tool state
+const awaitingInteraction = ref(false)
+const interactiveToolCallId = ref<string | null>(null)
 
 // New model management state
 const providers = ref<ProviderInfo[]>([])
@@ -175,6 +180,10 @@ export interface UseConversationReturn {
   recentModels: Ref<ModelReference[]>
   defaultModel: Ref<ModelReference | null>
 
+  // Interactive tool state
+  awaitingInteraction: Ref<boolean>
+  interactiveToolCallId: Ref<string | null>
+
   // Advanced view settings
   advancedViewSettings: Ref<AdvancedViewSettings>
 
@@ -191,6 +200,7 @@ export interface UseConversationReturn {
   deleteConversation: () => Promise<void>
   sendMessage: (content: string, model?: string) => Promise<void>
   cancelGeneration: () => Promise<void>
+  continueWithContext: (appContext: Record<string, unknown>) => Promise<void>
   retryFromMessage: (index: number) => Promise<void>
   deleteMessagesFrom: (index: number) => Promise<void>
   updateSystemPrompt: (content: string) => Promise<void>
@@ -464,10 +474,59 @@ export function useConversation(): UseConversationReturn {
           tc.result = event.result
           tc.is_error = event.is_error
           tc.latency_ms = event.latency_ms
+          tc.ui_metadata = event.ui_metadata
           toolCalls.value = new Map(toolCalls.value)
         }
       },
       onComplete: (event) => {
+        // Check if orchestrator is pausing for interactive tool
+        if (event.awaiting_interaction) {
+          // Commit tool call/result messages to conversation
+          toolCalls.value.forEach((tc) => {
+            if (conversation.value) {
+              conversation.value.messages.push({
+                id: `msg_tc_${tc.id}`,
+                role: 'tool_call',
+                content: '',
+                timestamp: new Date().toISOString(),
+                status: 'complete',
+                tool_name: tc.tool_name,
+                tool_arguments: tc.arguments,
+                tool_call_id: tc.id,
+              })
+              conversation.value.messages.push({
+                id: `msg_tr_${tc.id}`,
+                role: 'tool_result',
+                content: '',
+                timestamp: new Date().toISOString(),
+                status: 'complete',
+                tool_call_id: tc.id,
+                tool_result: tc.result,
+                is_error: tc.is_error,
+                latency_ms: tc.latency_ms,
+                ui_metadata: tc.ui_metadata,
+              })
+            }
+          })
+
+          // Update message count
+          if (conversation.value) {
+            conversation.value.metadata.message_count = conversation.value.messages.length
+            conversation.value.metadata.updated_at = new Date().toISOString()
+          }
+
+          // Set awaiting interaction state
+          awaitingInteraction.value = true
+          interactiveToolCallId.value = event.interactive_tool_call_id || null
+
+          // Reset streaming state but do NOT create an assistant message
+          isStreaming.value = false
+          currentResponse.value = ''
+          currentThinking.value = ''
+          toolCalls.value = new Map()
+          return
+        }
+
         // Add tool call/result messages first (chronological order)
         // Tool calls happen before the final assistant response
         toolCalls.value.forEach((tc) => {
@@ -494,6 +553,7 @@ export function useConversation(): UseConversationReturn {
               tool_result: tc.result,
               is_error: tc.is_error,
               latency_ms: tc.latency_ms,
+              ui_metadata: tc.ui_metadata,
             })
           }
         })
@@ -556,13 +616,31 @@ export function useConversation(): UseConversationReturn {
 
   // Cancel generation (just disconnect SSE - backend is stateless)
   async function cancelGeneration(): Promise<void> {
-    if (!isStreaming.value) return
+    if (!isStreaming.value && !awaitingInteraction.value) return
 
     sse.disconnect()
     isStreaming.value = false
     currentResponse.value = ''
     currentThinking.value = ''
     toolCalls.value = new Map()
+    awaitingInteraction.value = false
+    interactiveToolCallId.value = null
+  }
+
+  // Continue after interactive tool with user's selection context
+  async function continueWithContext(appContext: Record<string, unknown>): Promise<void> {
+    if (!awaitingInteraction.value || !conversation.value) return
+
+    // Reset interaction state
+    awaitingInteraction.value = false
+    interactiveToolCallId.value = null
+
+    // Format context as a user message
+    const contextJson = JSON.stringify(appContext, null, 2)
+    const contextMessage = `Here is my selection from the interactive tool:\n${contextJson}\n\nPlease continue with the task using this information.`
+
+    // Send as a new message - existing flow handles the rest
+    await sendMessage(contextMessage)
   }
 
   // Retry from a specific message index (removes error and resends)
@@ -1038,6 +1116,10 @@ export function useConversation(): UseConversationReturn {
     recentModels,
     defaultModel,
 
+    // Interactive tool state
+    awaitingInteraction,
+    interactiveToolCallId,
+
     // Advanced view settings
     advancedViewSettings,
 
@@ -1054,6 +1136,7 @@ export function useConversation(): UseConversationReturn {
     deleteConversation,
     sendMessage,
     cancelGeneration,
+    continueWithContext,
     retryFromMessage,
     deleteMessagesFrom,
     updateSystemPrompt,

@@ -1,17 +1,36 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import Panel from 'primevue/panel'
+import Button from 'primevue/button'
+import McpAppRenderer from './McpAppRenderer.vue'
 import type { ToolCallState } from '@/types'
+import type { AppContext } from '@/composables/useAppBridge'
 import { useConversation } from '@/composables/useConversation'
 
 const props = defineProps<{
   toolCall: ToolCallState
 }>()
 
-const { isAdvancedView } = useConversation()
+const { isAdvancedView, awaitingInteraction, interactiveToolCallId, continueWithContext } = useConversation()
 
-const isExpanded = ref(false)
+const isAwaitingInteraction = computed(() =>
+  awaitingInteraction.value && interactiveToolCallId.value === props.toolCall.id
+)
+
+const hasUiApp = computed(() => !!props.toolCall.ui_metadata?.resourceUri)
+const isExpanded = ref(hasUiApp.value)
 const showFullResult = ref(false)
+const appContext = ref<AppContext | null>(null)
+
+// Auto-expand when ui_metadata arrives (e.g., during streaming the tool_call
+// event arrives first without metadata, then tool_result adds it)
+watch(hasUiApp, (has) => {
+  if (has) isExpanded.value = true
+})
+
+function onAppContextUpdate(context: AppContext): void {
+  appContext.value = context
+}
 
 const displayName = computed(() => {
   if (isAdvancedView.value) {
@@ -110,12 +129,34 @@ const isResultTruncated = computed(() => {
       </template>
 
       <div class="tool-details">
-        <div class="detail-section">
+        <!-- MCP App iframe -->
+        <McpAppRenderer
+          v-if="hasUiApp && toolCall.ui_metadata"
+          :ui-metadata="toolCall.ui_metadata"
+          :tool-name="toolCall.tool_name"
+          @context-update="onAppContextUpdate"
+        />
+
+        <!-- Interactive tool: Continue button -->
+        <div v-if="isAwaitingInteraction" class="interaction-section">
+          <template v-if="appContext">
+            <p class="interaction-hint">Make your selection above, then continue.</p>
+            <Button
+              label="Continue"
+              icon="pi pi-arrow-right"
+              class="continue-button"
+              @click="continueWithContext(appContext as Record<string, unknown>)"
+            />
+          </template>
+          <p v-else class="interaction-waiting">Waiting for your selection...</p>
+        </div>
+
+        <div v-if="!hasUiApp || isAdvancedView" class="detail-section">
           <h4 class="detail-label">Arguments</h4>
           <pre class="detail-code">{{ formattedArguments }}</pre>
         </div>
 
-        <div v-if="toolCall.result !== undefined" class="detail-section">
+        <div v-if="toolCall.result !== undefined && (!hasUiApp || isAdvancedView)" class="detail-section">
           <h4 class="detail-label">
             Result
             <span v-if="toolCall.is_error" class="error-badge">Error</span>
@@ -250,5 +291,33 @@ const isResultTruncated = computed(() => {
 
 .show-more-btn:hover {
   color: var(--p-primary-600);
+}
+
+.interaction-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem;
+  background: color-mix(in srgb, var(--p-primary-color) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--p-primary-color) 30%, transparent);
+  border-radius: 8px;
+}
+
+.interaction-hint {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--p-text-muted-color);
+}
+
+.interaction-waiting {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--p-text-muted-color);
+  font-style: italic;
+}
+
+.continue-button {
+  min-width: 120px;
 }
 </style>
