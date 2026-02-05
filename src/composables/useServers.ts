@@ -19,8 +19,8 @@ import type {
 // Storage key for persisted servers
 const SERVERS_STORAGE_KEY = 'forge_mcp_servers'
 
-// API URL from environment
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4041'
+// API URL from environment (use ?? so empty string works for production)
+const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4041'
 
 // Module-level state (singleton pattern)
 const servers = ref<MCPServerConfig[]>([])

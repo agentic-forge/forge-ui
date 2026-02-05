@@ -8,7 +8,7 @@
  * The schema serves as documentation and can be used for runtime validation.
  */
 
-import type { TokenUsage } from './messages'
+import type { TokenUsage, UiMetadata } from './messages'
 
 /** Current schema version for conversation export format */
 export const CONVERSATION_SCHEMA_VERSION = '1.1.0'
@@ -37,6 +37,7 @@ export interface Message {
   is_error?: boolean
   latency_ms?: number
   result_format?: 'json' | 'toon'
+  ui_metadata?: UiMetadata
 
   // For user messages - per-turn settings
   enable_tools?: boolean
@@ -157,6 +158,7 @@ export interface ToolCallState {
   result?: unknown
   is_error?: boolean
   latency_ms?: number
+  ui_metadata?: UiMetadata
 }
 
 /**

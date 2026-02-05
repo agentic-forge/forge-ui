@@ -39,6 +39,7 @@ function buildToolCallFromHistory(
     result: resultMsg?.tool_result,
     is_error: resultMsg?.is_error || false,
     latency_ms: resultMsg?.latency_ms,
+    ui_metadata: resultMsg?.ui_metadata,
   }
 }
 
@@ -69,8 +70,8 @@ const displayItems = computed(() => {
         const resultMsg = toolResults.get(msg.tool_call_id)
         const toolState = buildToolCallFromHistory(msg, resultMsg)
 
-        // Show all tool calls in advanced view, only errors in basic view
-        if (isAdvancedView.value || toolState.is_error) {
+        // Show all tool calls in advanced view, errors, or MCP Apps in basic view
+        if (isAdvancedView.value || toolState.is_error || toolState.ui_metadata?.resourceUri) {
           items.push({ type: 'tool_group', data: toolState, index })
         }
       }
