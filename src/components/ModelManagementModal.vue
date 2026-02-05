@@ -44,6 +44,8 @@ const {
   isUsingByokForProvider,
   setPersistence,
   serverHasKey,
+  llmKey,
+  llmProvider,
 } = useKeys()
 
 // Local state
